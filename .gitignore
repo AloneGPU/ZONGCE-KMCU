@@ -1,0 +1,52 @@
+# 依赖（两个项目）
+node_modules/
+frontend/node_modules/
+
+# 环境配置（含密码，绝对不要提交！）
+.env
+*.env.local
+
+# 上传文件
+public/uploads/*
+!public/uploads/.gitkeep
+!public/uploads/_incoming/.gitkeep
+
+# 日志
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+
+# React 构建产物（源码在 frontend/src/）
+public/index.html
+public/assets/*
+frontend/dist/
+
+# 归档文件（调试数据/临时导出/备份）
+archive/
+
+# 参考资料
+reference/*.xlsx
+reference/*.xls
+reference/*.docx
+*.zip
+*.csv
+
+# 临时/残留
+.claude/temp-skills/
+.playwright-mcp/
+profile_explore*.json
+*.png
+*.jpg
+*.xlsx
+e2e_test.js
+nul

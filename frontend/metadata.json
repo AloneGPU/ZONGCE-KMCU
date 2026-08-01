@@ -1,0 +1,6 @@
+{
+  "name": "高校学生综合素质测评管理系统",
+  "description": "简约高级、多角色协同、自动规则计分与排名的全流程学生综合素质测评(综测)管理平台",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
