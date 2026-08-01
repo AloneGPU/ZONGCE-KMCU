@@ -192,7 +192,7 @@ export async function downloadTeacherImportTemplate() {
   appendImportNotesSheet(XLSX, workbook, [
     '工号、姓名必填；邮箱建议填写，用于辅导员修改密码和忘记密码验证码。',
     '密码可不填，不填时使用系统默认初始密码。',
-    '负责班级可用英文逗号、中文逗号或顿号分隔，例如 物联网工程1班,人工智能1班。',
+    '负责班级可填写一个或多个班级；多个班级可用英文逗号、中文逗号或顿号分隔，例如 物联网工程1班,人工智能1班。',
     '年级建议使用 2024级；负责班级建议先在班级管理中维护。'
   ]);
   XLSX.writeFile(workbook, '教师导入模板.xlsx');

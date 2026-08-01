@@ -56,6 +56,10 @@ function inferRegistrationGrade(account: string) {
   return '';
 }
 
+function registerClassKey(item: RegisterClassOption) {
+  return `${item.grade}|${item.major}|${item.className}|${item.collegeId ?? ''}`;
+}
+
 const steps: StepItem[] = [
   { id: 0, label: '验证账号', detail: '正在核验账号、密码与访问权限。' },
   { id: 1, label: '读取基础数据', detail: '正在载入学生信息、班级信息与当前学年。' },
@@ -82,6 +86,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   const [registerCollegeId, setRegisterCollegeId] = useState('');
   const [registerMajor, setRegisterMajor] = useState('');
   const [registerClassName, setRegisterClassName] = useState('');
+  const [registerClassKeys, setRegisterClassKeys] = useState<string[]>([]);
   const [registerCounselor, setRegisterCounselor] = useState('');
   const [registerOptions, setRegisterOptions] = useState<{ colleges: RegisterCollegeOption[]; majors: string[]; classes: RegisterClassOption[]; counselors: RegisterCounselorOption[] }>({
     colleges: [],
@@ -118,6 +123,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
     (!registerMajor || item.major === registerMajor) &&
     (!registrationGrade || item.grade === registrationGrade)
   ), [registrationGrade, registerMajor, registerOptions.classes]);
+  const counselorRegisterClasses = useMemo(
+    () => registerOptions.classes
+      .filter(item => !registrationGrade || item.grade === registrationGrade)
+      .sort((left, right) => left.major.localeCompare(right.major, 'zh-CN') || left.className.localeCompare(right.className, 'zh-CN')),
+    [registerOptions.classes, registrationGrade]
+  );
+  const selectedCounselorClasses = useMemo(() => {
+    const selected = new Set(registerClassKeys);
+    return counselorRegisterClasses.filter(item => selected.has(registerClassKey(item)));
+  }, [counselorRegisterClasses, registerClassKeys]);
 
   const registrationOptionsReady = registerOptions.majors.length > 0 && registerOptions.classes.length > 0;
   const selectedRegisterClass = useMemo(
@@ -163,6 +178,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   }, []);
 
   useEffect(() => {
+    if (registrationRole !== 'student') return;
     if (!registrationOptionsReady) return;
     if (availableMajors.length === 0) {
       if (registerMajor) setRegisterMajor('');
@@ -174,15 +190,16 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       setRegisterClassName('');
       setRegisterCounselor('');
     }
-  }, [availableMajors, registerClassName, registerMajor, registrationOptionsReady]);
+  }, [availableMajors, registerClassName, registerMajor, registrationOptionsReady, registrationRole]);
 
   useEffect(() => {
+    if (registrationRole !== 'student') return;
     if (!registerClassName && filteredClasses[0]) {
       setRegisterClassName(filteredClasses[0].className);
     } else if (registerClassName && filteredClasses.length > 0 && !filteredClasses.some(item => item.className === registerClassName)) {
       setRegisterClassName(filteredClasses[0].className);
     }
-  }, [filteredClasses, registerClassName]);
+  }, [filteredClasses, registerClassName, registrationRole]);
 
   useEffect(() => {
     const inferred = inferRegistrationGrade(account);
@@ -190,9 +207,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   }, [account, registerGrade]);
 
   useEffect(() => {
-    if (!selectedRegisterClass?.collegeId) return;
-    setRegisterCollegeId(String(selectedRegisterClass.collegeId));
-  }, [selectedRegisterClass]);
+    if (registrationRole !== 'counselor') return;
+    const availableKeys = new Set(counselorRegisterClasses.map(registerClassKey));
+    setRegisterClassKeys(prev => {
+      const next = prev.filter(key => availableKeys.has(key));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [counselorRegisterClasses, registrationRole]);
+
+  useEffect(() => {
+    const collegeId = registrationRole === 'counselor'
+      ? selectedCounselorClasses[0]?.collegeId
+      : selectedRegisterClass?.collegeId;
+    if (!collegeId) return;
+    setRegisterCollegeId(String(collegeId));
+  }, [registrationRole, selectedCounselorClasses, selectedRegisterClass]);
 
   useEffect(() => {
     if (availableCounselors.length === 1) {
@@ -343,21 +372,37 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       setErrorMsg('两次输入的密码不一致');
       return;
     }
-    if (!registrationGrade || !registerMajor || !registerClassName || (registrationRole === 'student' && !registerCounselor.trim())) {
-      setErrorMsg(registrationRole === 'student' ? '请选择年级、专业、班级和辅导员' : '请选择年级、专业和负责班级');
+    if (registrationRole === 'student' && (!registrationGrade || !registerMajor || !registerClassName || !registerCounselor.trim())) {
+      setErrorMsg('请选择年级、专业、班级和辅导员');
+      return;
+    }
+    if (registrationRole === 'counselor' && (!registrationGrade || selectedCounselorClasses.length === 0)) {
+      setErrorMsg('请选择管理年级和至少一个负责班级');
       return;
     }
 
     try {
       beginLoading();
       const classMeta = registerOptions.classes.find(item => item.className === registerClassName && item.major === registerMajor && item.grade === registrationGrade);
+      const primaryClass = selectedCounselorClasses[0] || classMeta;
       const commonData = {
         account: account.trim(), name: registerName.trim(), password,
         email: registerEmail.trim(), emailCode: emailCode.trim(),
-        major: registerMajor, grade: registrationGrade, className: registerClassName
+        major: primaryClass?.major || registerMajor,
+        grade: registrationGrade,
+        className: primaryClass?.className || registerClassName
       };
       const matchedUser = registrationRole === 'counselor'
-        ? await apiService.registerCounselor({ ...commonData, collegeId: classMeta?.collegeId || (registerCollegeId ? Number(registerCollegeId) : null) })
+        ? await apiService.registerCounselor({
+            ...commonData,
+            collegeId: primaryClass?.collegeId || (registerCollegeId ? Number(registerCollegeId) : null),
+            classes: selectedCounselorClasses.map(item => ({
+              grade: item.grade,
+              major: item.major,
+              className: item.className,
+              collegeId: item.collegeId
+            }))
+          })
         : await apiService.registerStudent({ ...commonData, counselorName: registerCounselor.trim(), collegeId: classMeta?.collegeId || null });
       setPendingUser(matchedUser);
       setAuthReady(true);
@@ -520,7 +565,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                         { key: 'student', label: '学生注册' },
                         { key: 'counselor', label: '辅导员注册' }
                       ] as const).map(item => (
-                        <button key={item.key} type="button" onClick={() => { setRegistrationRole(item.key); setRegisterCounselor(''); }} className={`h-9 rounded-lg text-xs font-bold transition-all ${registrationRole === item.key ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}>{item.label}</button>
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => {
+                            setRegistrationRole(item.key);
+                            setRegisterCounselor('');
+                            setRegisterClassName('');
+                            setRegisterClassKeys([]);
+                          }}
+                          className={`h-9 rounded-lg text-xs font-bold transition-all ${registrationRole === item.key ? 'bg-white text-slate-950 shadow-sm dark:bg-slate-800 dark:text-white' : 'text-slate-500 dark:text-slate-400'}`}
+                        >
+                          {item.label}
+                        </button>
                       ))}
                     </div>
                   )}
@@ -685,7 +742,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                       <Field label="年级" icon={<GraduationCap className="h-4 w-4" />}>
                         <select
                           value={registrationGrade}
-                          onChange={e => { setRegisterGrade(e.target.value); setRegisterClassName(''); setRegisterCounselor(''); }}
+                          onChange={e => { setRegisterGrade(e.target.value); setRegisterClassName(''); setRegisterClassKeys([]); setRegisterCounselor(''); }}
                           required
                           disabled={!registrationOptionsReady || availableGrades.length === 0}
                           className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
@@ -697,73 +754,113 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                         </select>
                       </Field>
 
-                      <Field label="专业" icon={<GraduationCap className="h-4 w-4" />}>
-                        <select
-                          value={registerMajor}
-                          onChange={e => {
-                            setRegisterMajor(e.target.value);
-                            setRegisterClassName('');
-                            setRegisterCounselor('');
-                          }}
-                          required
-                          disabled={!registrationOptionsReady || availableMajors.length === 0}
-                          className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
-                        >
-                          <option value="">{availableMajors.length === 0 ? '请先选择年级' : '请选择专业'}</option>
-                          {availableMajors.map(major => (
-                            <option key={major} value={major}>{major}</option>
-                          ))}
-                        </select>
-                      </Field>
+                      {registrationRole === 'student' ? (
+                        <>
+                          <Field label="专业" icon={<GraduationCap className="h-4 w-4" />}>
+                            <select
+                              value={registerMajor}
+                              onChange={e => {
+                                setRegisterMajor(e.target.value);
+                                setRegisterClassName('');
+                                setRegisterCounselor('');
+                              }}
+                              required
+                              disabled={!registrationOptionsReady || availableMajors.length === 0}
+                              className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
+                            >
+                              <option value="">{availableMajors.length === 0 ? '请先选择年级' : '请选择专业'}</option>
+                              {availableMajors.map(major => (
+                                <option key={major} value={major}>{major}</option>
+                              ))}
+                            </select>
+                          </Field>
 
-                      <Field label="班级" icon={<UsersRound className="h-4 w-4" />}>
-                        <select
-                          value={registerClassName}
-                          onChange={e => {
-                            setRegisterClassName(e.target.value);
-                            setRegisterCounselor('');
-                          }}
-                          required
-                          disabled={!registrationOptionsReady || filteredClasses.length === 0}
-                          className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
-                        >
-                          <option value="">{filteredClasses.length === 0 ? '请先选择年级和专业' : '请选择班级'}</option>
-                          {filteredClasses.map(item => (
-                            <option key={`${item.grade}-${item.major}-${item.className}`} value={item.className}>{item.className}</option>
-                          ))}
-                        </select>
-                      </Field>
+                          <Field label="班级" icon={<UsersRound className="h-4 w-4" />}>
+                            <select
+                              value={registerClassName}
+                              onChange={e => {
+                                setRegisterClassName(e.target.value);
+                                setRegisterCounselor('');
+                              }}
+                              required
+                              disabled={!registrationOptionsReady || filteredClasses.length === 0}
+                              className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
+                            >
+                              <option value="">{filteredClasses.length === 0 ? '请先选择年级和专业' : '请选择班级'}</option>
+                              {filteredClasses.map(item => (
+                                <option key={`${item.grade}-${item.major}-${item.className}`} value={item.className}>{item.className}</option>
+                              ))}
+                            </select>
+                          </Field>
 
-                      {registrationRole === 'student' ? <div className="sm:col-span-2">
-                        <Field label="辅导员姓名" icon={<UserIcon className="h-4 w-4" />}>
-                          <select
-                            value={registerCounselor}
-                            onChange={e => setRegisterCounselor(e.target.value)}
-                            required
-                            disabled={!registrationGrade || availableCounselors.length === 0}
-                            className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
-                          >
-                            <option value="">
-                              {!registrationGrade
-                                ? '请先选择年级'
-                                : availableCounselors.length === 0
-                                  ? `未配置${registrationGrade}对应辅导员`
-                                  : '请选择辅导员'}
-                            </option>
-                            {availableCounselors.map(item => (
-                              <option key={item.id} value={item.name}>{item.name} · {item.grade}</option>
-                            ))}
-                          </select>
-                        </Field>
-                      </div> : <>
-                        <Field label="学院" icon={<Building2 className="h-4 w-4" />}>
-                          <select value={registerCollegeId} onChange={e => setRegisterCollegeId(e.target.value)} required disabled className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65">
-                            <option value="">{selectedRegisterClass ? '未绑定学院' : '选择班级后自动带出'}</option>
-                            {registerOptions.colleges.map(college => <option key={college.id} value={college.id}>{college.name}</option>)}
-                          </select>
-                        </Field>
-                        <div className="sm:col-span-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">辅导员注册只能选择管理员已维护的年级、专业和班级；同一班级已有辅导员时系统会阻止重复绑定。</div>
-                      </>}
+                          <div className="sm:col-span-2">
+                            <Field label="辅导员姓名" icon={<UserIcon className="h-4 w-4" />}>
+                              <select
+                                value={registerCounselor}
+                                onChange={e => setRegisterCounselor(e.target.value)}
+                                required
+                                disabled={!registrationGrade || availableCounselors.length === 0}
+                                className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65"
+                              >
+                                <option value="">
+                                  {!registrationGrade
+                                    ? '请先选择年级'
+                                    : availableCounselors.length === 0
+                                      ? `未配置${registrationGrade}对应辅导员`
+                                      : '请选择辅导员'}
+                                </option>
+                                {availableCounselors.map(item => (
+                                  <option key={item.id} value={item.name}>{item.name} · {item.grade}</option>
+                                ))}
+                              </select>
+                            </Field>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="sm:col-span-2">
+                            <label className="mb-1.5 block text-xs font-bold text-slate-700 dark:text-slate-300">负责班级（可多选）</label>
+                            <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-2 text-xs dark:border-slate-800 dark:bg-slate-900/70">
+                              {counselorRegisterClasses.length === 0 ? (
+                                <div className="px-2 py-4 text-center text-slate-400">请先选择管理年级</div>
+                              ) : (
+                                <div className="grid gap-1 sm:grid-cols-2">
+                                  {counselorRegisterClasses.map(item => {
+                                    const key = registerClassKey(item);
+                                    const checked = registerClassKeys.includes(key);
+                                    return (
+                                      <label key={key} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-slate-700 hover:bg-white dark:text-slate-200 dark:hover:bg-slate-800">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() => {
+                                            setRegisterClassKeys(prev => checked ? prev.filter(value => value !== key) : [...prev, key]);
+                                          }}
+                                          className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-600 dark:border-slate-700 dark:bg-slate-950"
+                                        />
+                                        <span className="min-w-0 truncate">{item.major} · {item.className}</span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-1.5 text-[11px] font-medium text-slate-400">
+                              已选择 {selectedCounselorClasses.length} 个班级；同一班级已有辅导员时系统会阻止重复绑定。
+                            </div>
+                          </div>
+
+                          <Field label="学院" icon={<Building2 className="h-4 w-4" />}>
+                            <select value={registerCollegeId} onChange={e => setRegisterCollegeId(e.target.value)} required disabled className="auth-input appearance-none disabled:cursor-not-allowed disabled:opacity-65">
+                              <option value="">{selectedCounselorClasses.length > 0 ? '未绑定学院' : '选择班级后自动带出'}</option>
+                              {registerOptions.colleges.map(college => <option key={college.id} value={college.id}>{college.name}</option>)}
+                            </select>
+                          </Field>
+                          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300">
+                            辅导员可一次选择同一年级下的多个负责班级；管理员端新增教师和教师导入模板也支持多班级。
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 

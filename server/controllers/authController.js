@@ -193,38 +193,67 @@ exports.registerCounselor = async (req, res) => {
     const password = String(req.body.password || '');
     const email = cleanText(req.body.email, 120);
     const emailCode = cleanText(req.body.emailCode || req.body.code, 10);
-    const major = cleanText(req.body.major, 100);
-    const className = standardizeClassNameForDisplay(cleanText(req.body.className || req.body.class_name, 100));
-    const grade = normalizeGrade(cleanText(req.body.grade, 20));
+    const legacyMajor = cleanText(req.body.major, 100);
+    const legacyClassName = standardizeClassNameForDisplay(cleanText(req.body.className || req.body.class_name, 100));
+    const requestedGrade = normalizeGrade(cleanText(req.body.grade, 20));
     const requestedCollegeId = parseInt(req.body.collegeId || req.body.college_id, 10) || null;
+    const submittedClasses = Array.isArray(req.body.classes) ? req.body.classes : [];
+    let classTargets = submittedClasses
+      .map(item => ({
+        grade: normalizeGrade(cleanText(item?.grade || requestedGrade, 20)),
+        major: cleanText(item?.major, 100),
+        className: standardizeClassNameForDisplay(cleanText(item?.className || item?.class_name, 100)),
+        collegeId: parseInt(item?.collegeId || item?.college_id, 10) || requestedCollegeId || null
+      }))
+      .filter(item => item.major && item.className);
+
+    if (classTargets.length === 0 && legacyMajor && legacyClassName) {
+      classTargets = [{
+        grade: requestedGrade,
+        major: legacyMajor,
+        className: legacyClassName,
+        collegeId: requestedCollegeId
+      }];
+    }
+
+    const grade = requestedGrade || classTargets[0]?.grade || '';
+    classTargets = Array.from(new Map(classTargets
+      .map(item => ({ ...item, grade: normalizeGrade(item.grade || grade) }))
+      .filter(item => item.grade && item.major && item.className)
+      .map(item => [`${item.grade}|${item.major}|${item.className}|${item.collegeId || ''}`, item])
+    ).values());
 
     if (!account || account.toLowerCase() === 'admin') return res.status(400).json({ error: '请输入有效的辅导员工号' });
     if (!name) return res.status(400).json({ error: '请输入姓名' });
     if (password.length < 6) return res.status(400).json({ error: '密码至少需要 6 位' });
     if (!isValidEmail(email)) return res.status(400).json({ error: '请输入正确的邮箱号' });
     if (!emailCode) return res.status(400).json({ error: '请输入邮箱验证码' });
-    if (!grade || !major || !className) return res.status(400).json({ error: '请选择年级、专业和负责班级' });
+    if (!grade || classTargets.length === 0) return res.status(400).json({ error: '请选择年级和至少一个负责班级' });
+    if (classTargets.some(item => item.grade !== grade)) return res.status(400).json({ error: '辅导员注册只能选择同一管理年级下的班级' });
 
-    const [options] = await conn.query(
-      `SELECT id, college_id FROM class_options
-       WHERE grade = ? AND major = ? AND class_name = ?
-         AND (? IS NULL OR college_id <=> ?)
-       ORDER BY is_active DESC, id LIMIT 1`,
-      [grade, major, className, requestedCollegeId, requestedCollegeId]
-    );
-    const collegeId = options[0]?.college_id || requestedCollegeId || await findCollegeId(className, major, grade, null);
+    const resolvedClasses = [];
+    for (const target of classTargets) {
+      const [options] = await conn.query(
+        `SELECT id, college_id FROM class_options
+         WHERE grade = ? AND major = ? AND class_name = ? AND is_active = TRUE
+           AND (? IS NULL OR college_id <=> ?)
+         ORDER BY id LIMIT 1`,
+        [target.grade, target.major, target.className, target.collegeId, target.collegeId]
+      );
+      if (!options[0]) return res.status(400).json({ error: `专业班级选项不存在：${target.grade} / ${target.major} / ${target.className}` });
+      resolvedClasses.push({
+        ...target,
+        collegeId: options[0].college_id || target.collegeId || null
+      });
+    }
+
+    const collegeIds = Array.from(new Set(resolvedClasses.map(item => item.collegeId).filter(Boolean)));
+    if (collegeIds.length > 1) return res.status(400).json({ error: '辅导员注册暂不支持一次选择多个学院的班级' });
+    const collegeId = collegeIds[0] || requestedCollegeId || await findCollegeId(resolvedClasses[0].className, resolvedClasses[0].major, grade, null);
     if (!collegeId) return res.status(400).json({ error: '未找到所属学院，请先选择学院后重试' });
 
     await conn.beginTransaction();
     await consumeEmailCode(conn, email, 'register', emailCode);
-
-    // 辅导员可补充尚未建立的注册班级；后续学生注册可直接复用该标准选项。
-    await conn.query(
-      `INSERT INTO class_options (college_id, grade, major, class_name, is_active)
-       VALUES (?, ?, ?, ?, TRUE)
-       ON DUPLICATE KEY UPDATE is_active = TRUE`,
-      [collegeId, grade, major, className]
-    );
 
     const [users] = await conn.query('SELECT * FROM users WHERE account = ? FOR UPDATE', [account]);
     const existingUser = users[0] || null;
@@ -277,26 +306,31 @@ exports.registerCounselor = async (req, res) => {
       teacherId = created.insertId;
     }
 
-    const [occupied] = await conn.query(
-      `SELECT t.name FROM teacher_classes tc
-       JOIN teachers t ON t.id = tc.teacher_id
-       WHERE tc.class_name = ? AND t.grade = ? AND t.id <> ?
-       LIMIT 1`,
-      [className, grade, teacherId]
-    );
-    if (occupied[0]) {
-      await conn.rollback();
-      return res.status(400).json({ error: `该班级已由辅导员“${occupied[0].name}”负责，请选择其他班级或联系管理员调整` });
+    for (const target of resolvedClasses) {
+      const [occupied] = await conn.query(
+        `SELECT t.name FROM teacher_classes tc
+         JOIN teachers t ON t.id = tc.teacher_id
+         WHERE tc.class_name = ? AND t.grade = ? AND t.id <> ?
+         LIMIT 1`,
+        [target.className, grade, teacherId]
+      );
+      if (occupied[0]) {
+        await conn.rollback();
+        return res.status(400).json({ error: `班级“${target.className}”已由辅导员“${occupied[0].name}”负责，请取消选择或联系管理员调整` });
+      }
     }
 
-    await conn.query(
-      'INSERT IGNORE INTO teacher_classes (teacher_id, class_name) VALUES (?, ?)',
-      [teacherId, className]
-    );
-    await conn.query(
-      'UPDATE students SET counselor_name = ? WHERE class_name = ? AND grade = ?',
-      [name, className, grade]
-    );
+    await conn.query('DELETE FROM teacher_classes WHERE teacher_id = ?', [teacherId]);
+    for (const target of resolvedClasses) {
+      await conn.query(
+        'INSERT IGNORE INTO teacher_classes (teacher_id, class_name) VALUES (?, ?)',
+        [teacherId, target.className]
+      );
+      await conn.query(
+        'UPDATE students SET counselor_name = ? WHERE class_name = ? AND grade = ?',
+        [name, target.className, grade]
+      );
+    }
     await conn.commit();
 
     const user = await User.findByAccount(account);

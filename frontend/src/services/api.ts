@@ -172,7 +172,7 @@ export const apiService = {
     localStorage.setItem(TOKEN_KEY, result.token);
     return mapUser(result.user);
   },
-  async registerCounselor(data: { account: string; name: string; password: string; email: string; emailCode: string; major: string; className: string; grade: string; collegeId?: number | null }) {
+  async registerCounselor(data: { account: string; name: string; password: string; email: string; emailCode: string; major: string; className: string; grade: string; collegeId?: number | null; classes?: Array<{ grade: string; major: string; className: string; collegeId?: number | null }> }) {
     const result = await request<{ token: string; user: any }>('/auth/register', {
       method: 'POST', body: JSON.stringify({ ...data, role: 'counselor' })
     });
