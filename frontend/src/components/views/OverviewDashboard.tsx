@@ -193,12 +193,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       <div className="surface-elevated text-slate-900 dark:text-white rounded-2xl p-6 md:p-8 relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs mb-3">
+          <div className="min-w-0">
+            <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300 mb-3">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{activeAcademicYear} 学年综测全流程监控中心</span>
+              <span className="min-w-0 truncate">{activeAcademicYear} 学年综测全流程监控中心</span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="break-words text-2xl font-bold tracking-tight">
               欢迎登录，{currentUser.name} {currentUser.title ? `(${currentUser.title})` : ''}
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
@@ -206,10 +206,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center space-x-3">
+          <div className="flex w-full items-center gap-3 md:w-auto">
             <button
               onClick={() => onNavigateTab(currentUser.role === 'student' ? 'my-materials' : 'audit-center')}
-              className="motion-lift px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-lg shadow-blue-600/20 transition-all flex items-center space-x-1.5"
+              className="motion-lift flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 md:w-auto"
             >
               <span>{currentUser.role === 'student' ? '去提交申报材料' : '处理材料审核'}</span>
               <ArrowRight className="w-4 h-4" />
@@ -249,10 +249,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
       {/* 班级筛选器（辅导员和管理员可见） */}
       {isAdminOrCounselor && availableClasses.length > 0 && (
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-3 flex items-center gap-3 text-xs">
+        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-3 flex flex-col items-stretch gap-3 text-xs sm:flex-row sm:items-center">
           <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-slate-500 font-semibold">班级筛选：</span>
-          <select value={selectedClassKey} onChange={e => setSelectedClassKey(e.target.value)} className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border rounded-xl font-medium text-blue-600 dark:text-blue-400">
+          <span className="shrink-0 text-slate-500 font-semibold">班级筛选：</span>
+          <select value={selectedClassKey} onChange={e => setSelectedClassKey(e.target.value)} className="min-w-0 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border rounded-xl font-medium text-blue-600 dark:text-blue-400">
             <option value="all">全部班级 ({summaries.length}人)</option>
             {availableClasses.map(option => {
               const count = summaries.filter(summary => sameClassScope(
@@ -270,12 +270,12 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
       {/* Visual Data Analytics Section: Recharts Bar & Line Visualization */}
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="flex min-w-0 items-start gap-2 text-lg font-bold text-slate-900 dark:text-white sm:items-center">
             <BarChart3 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-            <span>综测数据库图表与多维分析中心</span>
+            <span className="min-w-0">综测数据库图表与多维分析中心</span>
           </h2>
-          <span className="text-xs text-slate-400 font-mono">基于实时数据库计算更新 · {displaySummaries.length} 人</span>
+          <span className="shrink-0 text-xs text-slate-400 font-mono">基于实时数据库计算更新 · {displaySummaries.length} 人</span>
         </div>
 
         {/* Charts Row 1: Bar Chart & Line Chart */}
@@ -283,10 +283,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           {/* Chart 1: Bar Chart for Class Average & Max Scores */}
           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <div className="min-w-0">
+                <h3 className="flex min-w-0 items-start gap-2 text-sm font-bold text-slate-900 dark:text-white sm:items-center">
                   <TrendingUp className="w-4 h-4 text-blue-600" />
-                  <span>各班级综测平均分与最高分对比 (柱状图)</span>
+                  <span className="min-w-0">各班级综测平均分与最高分对比 (柱状图)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   直观反映各班级总体学术与综测水平分布
@@ -315,10 +315,10 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           {/* Chart 2: Line Chart for Multi-Dimension Six Scores Comparison */}
           <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <div className="min-w-0">
+                <h3 className="flex min-w-0 items-start gap-2 text-sm font-bold text-slate-900 dark:text-white sm:items-center">
                   <Activity className="w-4 h-4 text-emerald-500" />
-                  <span>六大素质维度班级均分走势 (折线图)</span>
+                  <span className="min-w-0">六大素质维度班级均分走势 (折线图)</span>
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                   对比各班在德、智、体、创、美、劳各单项的均衡发展程度
@@ -353,9 +353,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           {/* Chart 3: Score Distribution Area/Line Chart */}
           <div className="lg:col-span-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <h3 className="flex min-w-0 items-start gap-2 text-sm font-bold text-slate-900 dark:text-white sm:items-center">
                 <PieIcon className="w-4 h-4 text-purple-500" />
-                <span>综测成绩分数段分布与累计占比 (面积折线图)</span>
+                <span className="min-w-0">综测成绩分数段分布与累计占比 (面积折线图)</span>
               </h3>
             </div>
 
@@ -385,9 +385,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           {/* Chart 4: Proof Material Status by Category Stacked Bar Chart */}
           <div className="lg:col-span-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-5 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+              <h3 className="flex min-w-0 items-start gap-2 text-sm font-bold text-slate-900 dark:text-white sm:items-center">
                 <FileCheck2 className="w-4 h-4 text-blue-500" />
-                <span>各素质维度申报材料处理状态 (堆叠柱状图)</span>
+                <span className="min-w-0">各素质维度申报材料处理状态 (堆叠柱状图)</span>
               </h3>
             </div>
 
@@ -415,11 +415,11 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Top Rank Leaderboard */}
         <div className="lg:col-span-7 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-6 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+          <div className="flex flex-col gap-2 border-b border-slate-100 pb-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h3 className="flex min-w-0 items-start gap-2 text-base font-bold text-slate-900 dark:text-white sm:items-center">
                 <Award className="w-5 h-5 text-amber-500" />
-                <span>综合测评年级榜首Top 5 实时预警看板</span>
+                <span className="min-w-0">综合测评年级榜首Top 5 实时预警看板</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 实时根据【德+智+体+创+志】动态算分更新排名。
@@ -438,9 +438,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             {topStudents.map((s, idx) => (
               <div
                 key={s.studentId}
-                className="p-3.5 bg-slate-50/70 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200/60 dark:border-slate-800/80 rounded-xl flex items-center justify-between"
+                className="p-3.5 bg-slate-50/70 dark:bg-slate-800/50 backdrop-blur-sm border border-slate-200/60 dark:border-slate-800/80 rounded-xl flex items-center justify-between gap-3"
               >
-                <div className="flex items-center space-x-3">
+                <div className="flex min-w-0 items-center space-x-3">
                   <div className={`w-7 h-7 rounded-full font-mono font-bold text-xs flex items-center justify-center ${
                     idx === 0 ? 'bg-amber-500 text-white shadow-md' :
                     idx === 1 ? 'bg-slate-300 text-slate-900' :
@@ -448,16 +448,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   }`}>
                     {idx + 1}
                   </div>
-                  <div>
-                    <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center space-x-2">
-                      <span>{s.studentName}</span>
-                      <span className="text-[10px] text-slate-400 font-normal font-mono">{s.studentId}</span>
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 font-bold text-xs text-slate-900 dark:text-white">
+                      <span className="min-w-0 truncate">{s.studentName}</span>
+                      <span className="shrink-0 text-[10px] text-slate-400 font-normal font-mono">{s.studentId}</span>
                     </div>
-                    <div className="text-[10px] text-slate-500">{s.majorClass} · {s.college}</div>
+                    <div className="truncate text-[10px] text-slate-500">{s.majorClass} · {s.college}</div>
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="shrink-0 text-right">
                   <div className="text-sm font-bold text-blue-600 dark:text-blue-400 font-mono">
                     {s.totalScore} 分
                   </div>
@@ -473,17 +473,17 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
         {/* Dynamic Activity Feed */}
         <div className="lg:col-span-5 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-6 shadow-sm space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+            <h3 className="flex min-w-0 items-start gap-2 text-base font-bold text-slate-900 dark:text-white sm:items-center">
               <Clock className="w-5 h-5 text-blue-600" />
-              <span>最新申报与审核动态</span>
+              <span className="min-w-0">最新申报与审核动态</span>
             </h3>
           </div>
 
           <div className="space-y-3 text-xs">
             {materials.slice(0, 4).map(mat => (
               <div key={mat.id} className="p-3 bg-slate-50/70 dark:bg-slate-800/40 rounded-xl space-y-1">
-                <div className="flex items-center justify-between font-medium">
-                  <span className="text-slate-900 dark:text-white font-bold">{mat.studentName}</span>
+                <div className="flex items-center justify-between gap-2 font-medium">
+                  <span className="min-w-0 truncate text-slate-900 dark:text-white font-bold">{mat.studentName}</span>
                   <span className={`px-2 py-0.5 text-[10px] rounded font-semibold ${
                     mat.status === 'approved' ? 'bg-emerald-50 text-emerald-600' :
                     mat.status === 'rejected' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'

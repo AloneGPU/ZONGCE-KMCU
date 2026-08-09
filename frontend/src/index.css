@@ -26,6 +26,10 @@
     letter-spacing: 0;
   }
 
+  svg {
+    flex-shrink: 0;
+  }
+
   input,
   select,
   textarea {
@@ -349,6 +353,32 @@
     border-radius: 999px;
     background: var(--zc-accent-line);
     box-shadow: 0 0 0 5px var(--zc-accent-glow), 0 0 20px var(--zc-accent-line);
+  }
+
+  .pdf-exporting,
+  .pdf-exporting * {
+    background-image: none !important;
+    box-shadow: none !important;
+    color: #0f172a !important;
+    text-shadow: none !important;
+    border-color: #0f172a !important;
+  }
+
+  .pdf-exporting {
+    background-color: #ffffff !important;
+  }
+
+  .pdf-exporting :is(.bg-slate-50, .bg-slate-100) {
+    background-color: #f8fafc !important;
+  }
+
+  .pdf-exporting :is(.text-slate-500, .text-slate-600, .text-slate-700) {
+    color: #475569 !important;
+  }
+
+  .pdf-exporting :is(.text-rose-600, .border-rose-600\/80) {
+    color: #dc2626 !important;
+    border-color: rgba(220, 38, 38, 0.8) !important;
   }
 
   @media (max-width: 640px) {

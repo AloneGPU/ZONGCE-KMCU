@@ -128,21 +128,21 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
       {/* Top Banner & Locking Control */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h2 className="flex min-w-0 items-start gap-2 text-lg font-bold text-slate-900 dark:text-white sm:items-center">
                 <Sparkles className="w-5 h-5 text-blue-600" />
-                <span>综合素质测评 (综测) 加分项细则库与规则配置引擎</span>
+                <span className="min-w-0">综合素质测评 (综测) 加分项细则库与规则配置引擎</span>
               </h2>
               {rulesLocked ? (
-                <span className="px-2.5 py-1 text-xs font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-lg flex items-center space-x-1">
+                <span className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:border-rose-900 dark:bg-rose-950/60 dark:text-rose-400">
                   <Lock className="w-3.5 h-3.5" />
                   <span>规则已锁定</span>
                 </span>
               ) : (
-                <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 rounded-lg flex items-center space-x-1">
+                <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-400">
                   <LockOpen className="w-3.5 h-3.5" />
-                  <span>辅导员/管理员可增删改查</span>
+                  <span className="min-w-0">辅导员/管理员可增删改查</span>
                 </span>
               )}
             </div>
@@ -154,7 +154,7 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
           {isAdmin && currentUser?.role === 'admin' && (
             <button
               onClick={() => onToggleLockRules(!rulesLocked)}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-2 shadow-sm ${
+              className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold shadow-sm transition-all md:w-auto ${
                 rulesLocked
                   ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20'
                   : 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20'
@@ -233,8 +233,8 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
 
         {/* Right Side: Selected Category Rule Items CRUD */}
         <div className="lg:col-span-8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-6 shadow-sm space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
-            <div>
+          <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <span>{activeCategoryConfig.categoryName} 可选加分细则清单</span>
               </h3>
@@ -255,7 +255,7 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
           </div>
 
           {/* Search & Toolbar */}
-          <div className="flex items-center justify-between gap-3 text-xs">
+          <div className="flex flex-col gap-3 text-xs sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
               <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
               <input
@@ -267,7 +267,7 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
               />
             </div>
 
-            <div className="text-slate-400 text-[11px]">
+            <div className="shrink-0 text-slate-400 text-[11px]">
               共 <span className="text-blue-600 font-bold">{filteredItems.length}</span> 项细则
             </div>
           </div>
@@ -317,10 +317,10 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
                   key={item.id}
                   className="p-4 bg-slate-50/70 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-2 hover:border-slate-300 dark:hover:border-slate-700 transition-colors shadow-xs"
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-bold text-xs text-slate-900 dark:text-white flex items-center space-x-2">
-                        <span>{item.name}</span>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h4 className="flex min-w-0 flex-wrap items-center gap-2 font-bold text-xs text-slate-900 dark:text-white">
+                        <span className="min-w-0 break-words">{item.name}</span>
                         <span className="px-2 py-0.5 text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-900">
                           {item.scoreType === 'tiered' ? '阶梯级别加分' : item.scoreType === 'input' ? '人工自由填报' : '固定加分'}
                         </span>
@@ -330,7 +330,7 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
                       </p>
                     </div>
 
-                    <div className="text-right shrink-0 ml-4">
+                    <div className="shrink-0 text-left sm:ml-4 sm:text-right">
                       <div className="text-sm font-bold text-blue-600 dark:text-blue-400">
                         最高 +{item.maxScore} 分
                       </div>
@@ -340,24 +340,24 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center space-x-1">
+                  <div className="flex flex-col gap-2 border-t border-slate-200/60 pt-2 text-[11px] text-slate-400 dark:border-slate-800/80 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="flex min-w-0 items-start gap-1 sm:items-center">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                      <span>{item.requiresProof ? '必须提交证书/材料影印件' : '免提交材料，自动关联考核记录'}</span>
+                      <span className="min-w-0">{item.requiresProof ? '必须提交证书/材料影印件' : '免提交材料，自动关联考核记录'}</span>
                     </span>
 
                     {isAdmin && !rulesLocked && (
-                      <div className="flex items-center space-x-3">
+                      <div className="flex shrink-0 items-center gap-3">
                         <button
                           onClick={() => openEditRuleModal(item)}
-                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 flex items-center space-x-1 cursor-pointer"
+                          className="flex items-center gap-1 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                           <span>编辑</span>
                         </button>
                         <button
                           onClick={() => handleDeleteItem(item.id)}
-                          className="text-rose-500 hover:text-rose-700 flex items-center space-x-1 cursor-pointer"
+                          className="flex items-center gap-1 text-rose-500 hover:text-rose-700 cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                           <span>删除</span>

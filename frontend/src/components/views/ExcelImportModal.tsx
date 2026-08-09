@@ -127,13 +127,13 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white"><FileSpreadsheet className="h-5 w-5 text-blue-600" />基础成绩批量导入</h2>
+          <div className="min-w-0">
+            <h2 className="flex min-w-0 items-center gap-2 text-lg font-bold text-slate-900 dark:text-white"><FileSpreadsheet className="h-5 w-5 text-blue-600" /><span className="min-w-0">基础成绩批量导入</span></h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {isAdmin ? '管理员可导入任意学生的基础成绩。' : '仅可导入本人负责年级、班级内学生的基础成绩。'} 导入成功后自动参与综测汇总与排名。
             </p>
           </div>
-          <button onClick={() => downloadScoreImportTemplate(selectedItem?.category === 'moral' ? 'moral' : selectedItem?.category === 'physical' ? 'physical' : 'intellectual')} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"><Download className="h-3.5 w-3.5" />下载导入模板</button>
+          <button onClick={() => downloadScoreImportTemplate(selectedItem?.category === 'moral' ? 'moral' : selectedItem?.category === 'physical' ? 'physical' : 'intellectual')} className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 md:w-auto"><Download className="h-3.5 w-3.5" /><span>下载导入模板</span></button>
         </div>
 
         {importableItems.length === 0 ? (
@@ -156,10 +156,10 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
           <label className="mt-4 inline-flex cursor-pointer items-center rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700"><span>选择成绩文件（.xlsx / .xls / .csv）</span><input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" /></label>
         </div>
 
-        {successMessage && <div className="mt-5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" />{successMessage}</div>}
+        {successMessage && <div className="mt-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" /><span className="min-w-0">{successMessage}</span></div>}
 
         {parsedItems.length > 0 && <div className="mt-6 space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="text-xs text-slate-600 dark:text-slate-300">共 {parsedItems.length} 条，<span className="font-semibold text-emerald-600">{matchedCount} 条匹配</span>{invalidCount > 0 && <span className="font-semibold text-rose-600">，{invalidCount} 条不可导入</span>}</div><button onClick={handleApplyScores} disabled={isImporting || invalidCount > 0} className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"><RefreshCw className={isImporting ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />{isImporting ? '正在写入数据库…' : '确认导入并更新排名'}</button></div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0 text-xs text-slate-600 dark:text-slate-300">共 {parsedItems.length} 条，<span className="font-semibold text-emerald-600">{matchedCount} 条匹配</span>{invalidCount > 0 && <span className="font-semibold text-rose-600">，{invalidCount} 条不可导入</span>}</div><button onClick={handleApplyScores} disabled={isImporting || invalidCount > 0} className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400 sm:w-auto"><RefreshCw className={isImporting ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} /><span>{isImporting ? '正在写入数据库...' : '确认导入并更新排名'}</span></button></div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800"><table className="w-full min-w-[600px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-4 py-2.5">状态</th><th className="px-4 py-2.5">学号</th><th className="px-4 py-2.5">姓名</th><th className="px-4 py-2.5">导入项目</th><th className="px-4 py-2.5">成绩</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{parsedItems.map((item, index) => <tr key={`${item.studentId}-${index}`}><td className="px-4 py-2.5"><span className={item.matchFound ? 'text-emerald-600' : 'text-rose-600'}>{item.matchFound ? '匹配成功' : '不在可导入范围'}</span></td><td className="px-4 py-2.5 font-mono font-semibold">{item.studentId}</td><td className="px-4 py-2.5">{item.studentName}</td><td className="px-4 py-2.5 text-slate-500">{selectedItem?.moduleName} · {selectedItem?.name}</td><td className="px-4 py-2.5 font-mono font-bold text-blue-600">{Number.isFinite(item.score) ? item.score : '无效成绩'}</td></tr>)}</tbody></table></div>
         </div>}
       </div>}

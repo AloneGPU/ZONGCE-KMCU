@@ -1,8 +1,6 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { User, StudentScoreSummary, ProofMaterial } from '../../types';
-import { Printer, ArrowLeft, FileText } from 'lucide-react';
-import { exportComprehensiveScoreExcel } from '../../utils/excel';
-import { apiService } from '../../services/api';
+import { Download, Printer, ArrowLeft } from 'lucide-react';
 
 interface PersonalReportPDFProps {
   currentUser: User;
@@ -19,6 +17,8 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
   activeAcademicYear,
   onBack
 }) => {
+  const reportRef = useRef<HTMLDivElement>(null);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const studentApprovedMaterials = materials.filter(
     m => m.studentId === currentUser.studentId && m.academicYear === activeAcademicYear && m.status === 'approved'
   );
@@ -27,38 +27,82 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
     window.print();
   };
 
+  const handleExportPdf = async () => {
+    if (!reportRef.current || isExportingPdf) return;
+    setIsExportingPdf(true);
+    const reportElement = reportRef.current;
+    try {
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+      reportElement.classList.add('pdf-exporting');
+      await new Promise(resolve => window.requestAnimationFrame(resolve));
+      const canvas = await html2canvas(reportElement, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        useCORS: true,
+        logging: false
+      });
+      const imageData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 8;
+      const usableWidth = pageWidth - margin * 2;
+      const usableHeight = pageHeight - margin * 2;
+      const imageHeight = (canvas.height * usableWidth) / canvas.width;
+
+      pdf.addImage(imageData, 'PNG', margin, margin, usableWidth, imageHeight);
+      let remainingHeight = imageHeight - usableHeight;
+      while (remainingHeight > 0) {
+        pdf.addPage();
+        const usedHeight = imageHeight - remainingHeight;
+        pdf.addImage(imageData, 'PNG', margin, margin - usedHeight, usableWidth, imageHeight);
+        remainingHeight -= usableHeight;
+      }
+      pdf.save(`${activeAcademicYear}_${currentUser.name}_${currentUser.studentId}_综测登记表.pdf`);
+    } catch (error: any) {
+      alert(error?.message || 'PDF 导出失败，请稍后重试');
+    } finally {
+      reportElement.classList.remove('pdf-exporting');
+      setIsExportingPdf(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Printable Control Action Bar (Hidden during printing) */}
-      <div className="print:hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex items-center justify-between">
+      <div className="print:hidden flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
         <button
           onClick={onBack}
-          className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors"
+          className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>返回个人看板</span>
         </button>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="grid w-full grid-cols-1 gap-2.5 sm:w-auto sm:grid-cols-2">
           <button
-            onClick={() => currentUser.studentDbId && apiService.openAuthorizedPage('/files/export-pdf/' + encodeURIComponent(currentUser.studentDbId) + '?yearId=' + encodeURIComponent(activeAcademicYear))}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
+            onClick={handleExportPdf}
+            disabled={isExportingPdf}
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-400 cursor-pointer"
           >
-            <FileText className="w-4 h-4" />
-            <span>打开服务器成绩报告</span>
+            <Download className="w-4 h-4" />
+            <span>{isExportingPdf ? '正在导出...' : '导出 PDF'}</span>
           </button>
           <button
             onClick={handlePrint}
-            className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl flex items-center space-x-2 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-5 py-2 text-xs font-bold text-white shadow-md shadow-amber-500/20 transition-all hover:bg-amber-600 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
-            <span>打印 / 导出 PDF 成绩单档案</span>
+            <span>打印登记表</span>
           </button>
         </div>
       </div>
 
       {/* Official Sheet Container (Designed to look like real university transcript) */}
-      <div className="bg-white text-slate-900 border border-slate-300 rounded-xl p-8 md:p-12 shadow-lg max-w-4xl mx-auto space-y-6 print:shadow-none print:border-none print:p-0">
+      <div ref={reportRef} className="bg-white text-slate-900 border border-slate-300 rounded-xl p-8 md:p-12 shadow-lg max-w-4xl mx-auto space-y-6 print:shadow-none print:border-none print:p-0">
         {/* Header */}
         <div className="text-center space-y-2 border-b-2 border-slate-900 pb-6">
           <div className="text-xs font-bold tracking-widest text-slate-500 uppercase">

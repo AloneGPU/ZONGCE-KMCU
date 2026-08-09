@@ -142,12 +142,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }`}
                     >
                       {isActive && <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-teal-300" />}
-                      <div className="flex items-center space-x-3">
+                      <div className="flex min-w-0 items-center space-x-3">
                         <Icon className={`w-4 h-4 ${isActive ? 'text-teal-300' : 'text-slate-400'}`} />
-                        <span>{item.label}</span>
+                        <span className="min-w-0 truncate text-left">{item.label}</span>
                       </div>
                       {item.badge !== undefined && item.badge > 0 && (
-                        <span className="bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm">
+                        <span className="ml-2 shrink-0 bg-rose-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold shadow-sm">
                           {item.badge}
                         </span>
                       )}

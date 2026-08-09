@@ -61,10 +61,10 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
       {/* Top Banner */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+          <div className="min-w-0">
+            <h2 className="flex min-w-0 items-start gap-2 text-lg font-bold text-slate-900 dark:text-white sm:items-center">
               <Archive className="w-5 h-5 text-blue-600" />
-              <span>学年跨度管理与综测数据归档锁死</span>
+              <span className="min-w-0">学年跨度管理与综测数据归档锁死</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               设定系统活跃申报学年（如 2025-2026学年），可增加新学年。归档封存历史学年后，对应年度的所有成绩、排名及审核记录将被永久锁定保护。
@@ -74,7 +74,7 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
           {isAdmin && (
             <button
               onClick={() => setShowAddModal(true)}
-              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center space-x-1.5 shadow-md shadow-blue-600/20 transition-colors shrink-0"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700 md:w-auto shrink-0"
             >
               <Plus className="w-4 h-4" />
               <span>新增综测学年</span>
@@ -97,19 +97,19 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
               }`}
             >
               <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-2">
+                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex min-w-0 items-center gap-2">
                     <Calendar className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                    <span className="text-base font-bold">{item.year} 学年</span>
+                    <span className="min-w-0 truncate text-base font-bold">{item.year} 学年</span>
                   </div>
 
                   {item.isLocked ? (
-                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center space-x-1">
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/20 px-2.5 py-1 text-[10px] font-bold text-rose-300">
                       <Lock className="w-3 h-3" />
                       <span>已被归档锁死</span>
                     </span>
                   ) : (
-                    <span className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center space-x-1">
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/20 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
                       <LockOpen className="w-3 h-3" />
                       <span>开放申报/修改</span>
                     </span>
@@ -128,7 +128,7 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-current/10 flex items-center justify-between">
+              <div className="flex flex-col gap-2 border-t border-current/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
                 {!isActive ? (
                   <button
                     onClick={() => onSelectActiveYear(item.year)}
@@ -141,7 +141,7 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
                     切换为主学年
                   </button>
                 ) : (
-                  <span className="text-xs font-bold text-blue-300 flex items-center space-x-1">
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-blue-300">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>当前活跃主学年</span>
                   </span>

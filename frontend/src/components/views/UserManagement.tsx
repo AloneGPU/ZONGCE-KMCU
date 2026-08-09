@@ -806,10 +806,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       {currentUser?.role === 'counselor' && (
         <div className="bg-gradient-to-r from-blue-50 to-amber-50 dark:from-blue-950/40 dark:to-amber-950/40 border border-blue-200 dark:border-blue-800 rounded-2xl p-5">
           <div className="flex items-start justify-between flex-wrap gap-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <div className="min-w-0">
+              <h3 className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-900 dark:text-white">
                 <ClipboardList className="w-4 h-4 text-blue-600" />
-                班级管理（变更申请）
+                <span className="min-w-0">班级管理（变更申请）</span>
               </h3>
               <p className="text-xs text-slate-500 mt-1">当前负责班级如下；新增、删除、修改负责班级都需要提交申请，管理员审核后生效。</p>
               <div className="flex flex-wrap gap-2 mt-3">
@@ -824,7 +824,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </div>
             <button
               onClick={() => { setActiveSubTab('teachers'); }}
-              className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-md shrink-0"
+              className="w-full rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-md sm:w-auto shrink-0"
             >
               前往教师列表提交申请 →
             </button>
@@ -835,20 +835,20 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       {/* Top Banner & SubTab Navigation */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+          <div className="min-w-0">
+            <h2 className="flex min-w-0 items-start gap-2 text-lg font-bold text-slate-900 dark:text-white sm:items-center">
               <FileSpreadsheet className="w-5 h-5 text-blue-600" />
-              <span>师生数据与班级名单管理</span>
+              <span className="min-w-0">师生数据与班级名单管理</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               按模板导入教师（工号/姓名/邮箱/密码/负责班级）及学生（学号/姓名/密码/专业班级/辅导员），支持增删与过滤。
             </p>
           </div>
 
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div className="flex max-w-full items-center overflow-x-auto rounded-xl border border-slate-200 bg-slate-100 p-1 dark:border-slate-700 dark:bg-slate-800">
             <button
               onClick={() => setActiveSubTab('students')}
-              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+              className={`shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 activeSubTab === 'students'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -858,7 +858,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </button>
             <button
               onClick={() => setActiveSubTab('teachers')}
-              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+              className={`shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 activeSubTab === 'teachers'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -868,7 +868,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             </button>
             <button
               onClick={() => { loadAssistants(); setActiveSubTab('assistants'); }}
-              className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+              className={`shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                 activeSubTab === 'assistants'
                   ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -879,7 +879,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             {isSuperAdmin && (
               <button
                 onClick={() => { loadClassOptions(); setActiveSubTab('classOptions'); }}
-                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
+                className={`shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
                   activeSubTab === 'classOptions'
                     ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
@@ -894,9 +894,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         {/* Status Message Alert */}
         {importStatusMsg && (
           <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900 rounded-xl text-xs text-blue-700 dark:text-blue-300 flex items-center justify-between gap-3">
-            <div className="flex items-center space-x-2">
+            <div className="flex min-w-0 items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-              <span>{importStatusMsg}</span>
+              <span className="min-w-0">{importStatusMsg}</span>
             </div>
             <button onClick={() => setImportStatusMsg('')} className="text-blue-600 hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200 shrink-0">
               关闭
@@ -908,7 +908,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       {isSuperAdmin && classRequests.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900 rounded-2xl p-5 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-white">年级/班级变更待审批 ({classRequests.length})</h3>
+            <h3 className="min-w-0 text-sm font-bold text-slate-900 dark:text-white">年级/班级变更待审批 ({classRequests.length})</h3>
             <button onClick={loadClassRequests} className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-xl">
               刷新
             </button>
@@ -916,7 +916,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           <div className="divide-y divide-slate-100 dark:divide-slate-800">
             {classRequests.map(req => (
               <div key={req.id} className="py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="text-xs text-slate-600 dark:text-slate-300">
+                <div className="min-w-0 text-xs text-slate-600 dark:text-slate-300">
                   <span className="font-bold text-slate-900 dark:text-white">{req.teacher_name}</span>
                   <span className="mx-2">
                     {req.request_type === 'grade' ? '申请变更管理年级为' : req.action === 'add' ? '申请新增负责班级' : '申请移除负责班级'}
@@ -924,7 +924,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   <span className="font-semibold text-blue-600 dark:text-blue-400">{req.request_type === 'grade' ? req.grade : req.class_name}</span>
                   {req.reason && <span className="ml-3 text-slate-400">{req.reason}</span>}
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex w-full items-center justify-end gap-2 md:w-auto shrink-0">
                   <button onClick={() => reviewClassRequest(req.id, 'reject')} className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900 text-xs font-semibold rounded-xl">
                     拒绝
                   </button>
@@ -939,7 +939,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       )}
 
       {/* Action Bar */}
-      {activeSubTab !== 'classOptions' && <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      {activeSubTab !== 'classOptions' && <div className="flex flex-col items-stretch justify-between gap-3 lg:flex-row lg:items-center">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 sm:max-w-xl">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -966,12 +966,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center lg:justify-end">
           {activeSubTab === 'students' ? (
             <>
               <button
                 onClick={() => exportStudentRosterExcel(filteredStudents, `学生名册_${selectedClass === 'all' ? '全校' : selectedClass}.xlsx`)}
-                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors cursor-pointer"
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>导出学生名册 Excel</span>
@@ -980,7 +980,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <button
                 onClick={downloadStudentImportTemplate}
                 disabled={!isSuperAdmin}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors cursor-pointer"
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>下载学生模板</span>
@@ -988,7 +988,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
               {isSuperAdmin ? (
                 <>
-                  <label className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 dark:border-blue-800 text-xs font-semibold rounded-xl flex items-center space-x-1.5 cursor-pointer transition-colors">
+                  <label className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-500 bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 dark:border-blue-800 cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
                     <span>批量导入学生</span>
                     <input
@@ -1001,14 +1001,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
                   <button
                     onClick={openAddStudentDialog}
-                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center space-x-1 shadow-md shadow-blue-600/20 transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>单条添加</span>
                   </button>
                 </>
               ) : (
-                <div className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 text-[11px] font-semibold rounded-xl flex items-center space-x-1">
+                <div className="flex items-center justify-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
                   <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>学生增删导入限管理员权限</span>
                 </div>
@@ -1018,7 +1018,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             <>
               <button
                 onClick={() => exportTeacherRosterExcel(filteredTeachers, '教师名册.xlsx')}
-                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors cursor-pointer"
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-600 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 cursor-pointer"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>导出教师名册 Excel</span>
@@ -1028,13 +1028,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 <>
                   <button
                     onClick={downloadTeacherImportTemplate}
-                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>下载教师模板</span>
                   </button>
 
-                  <label className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500 dark:border-blue-800 text-xs font-semibold rounded-xl flex items-center space-x-1.5 cursor-pointer transition-colors">
+                  <label className="flex items-center justify-center gap-1.5 rounded-xl border border-blue-500 bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 dark:border-blue-800 cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
                     <span>批量导入教师</span>
                     <input
@@ -1047,14 +1047,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
                   <button
                     onClick={openAddTeacherDialog}
-                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center space-x-1 shadow-md shadow-blue-600/20 transition-colors cursor-pointer"
+                    className="flex items-center justify-center gap-1 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>单条添加</span>
                   </button>
                 </>
               ) : (
-                <div className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 text-[11px] font-semibold rounded-xl flex items-center space-x-1">
+                <div className="flex items-center justify-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
                   <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                   <span>教师/管理员添加限超级管理员权限</span>
                 </div>
@@ -1073,14 +1073,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">登录注册班级管理</h3>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">统一维护学院、年级、专业、班级；辅导员可后续绑定。注册与权限匹配均以这些数据库资料为准。</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button onClick={downloadClassOptionImportTemplate} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center lg:justify-end">
+                <button onClick={downloadClassOptionImportTemplate} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
                   <Download className="h-3.5 w-3.5" />
-                  下载班级模板
+                  <span>下载班级模板</span>
                 </button>
-                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+                <label className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">
                   <Upload className="h-3.5 w-3.5" />
-                  批量导入班级
+                  <span>批量导入班级</span>
                   <input
                     type="file"
                     accept=".xlsx, .xls, .csv"
@@ -1088,7 +1088,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     className="hidden"
                   />
                 </label>
-                {editingClassOptionId && <button onClick={cancelEditClassOption} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><X className="h-3.5 w-3.5" />取消编辑</button>}
+                {editingClassOptionId && <button onClick={cancelEditClassOption} className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><X className="h-3.5 w-3.5" /><span>取消编辑</span></button>}
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-6 dark:border-slate-700 dark:bg-slate-800/50">
@@ -1100,7 +1100,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <button onClick={editingClassOptionId ? updateClassOption : saveClassOption} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">{editingClassOptionId ? '保存修改' : '新增班级'}</button>
             </div>
             {classOptions.length === 0 ? <p className="py-8 text-center text-xs text-slate-400">暂无可供登录注册选择的专业班级</p> : (
-              <div className="overflow-x-auto"><table className="w-full min-w-[780px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-3">学院</th><th className="px-3 py-3">年级</th><th className="px-3 py-3">专业</th><th className="px-3 py-3">班级</th><th className="px-3 py-3">注册可选辅导员</th><th className="px-3 py-3 text-right">操作</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{classOptions.map(option => <tr key={option.id}><td className="px-3 py-3 text-slate-500 dark:text-slate-400">{option.college_name || '默认学院'}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.grade}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.major}</td><td className="px-3 py-3 font-semibold text-blue-600 dark:text-blue-400">{option.class_name}</td><td className="px-3 py-3">{option.counselors?.length ? option.counselors.map(item => `${item.name}（${item.grade || '未设置年级'}）`).join('、') : '未绑定'}</td><td className="px-3 py-3"><div className="flex justify-end gap-2"><button onClick={() => beginEditClassOption(option)} title="编辑" className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950"><Pencil className="h-3.5 w-3.5" /></button><button onClick={() => removeClassOption(option.id)} title="删除" className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>)}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="w-full min-w-[780px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-3">学院</th><th className="px-3 py-3">年级</th><th className="px-3 py-3">专业</th><th className="px-3 py-3">班级</th><th className="px-3 py-3">注册可选辅导员</th><th className="px-3 py-3 text-right">操作</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{classOptions.map(option => <tr key={option.id}><td className="px-3 py-3 text-slate-500 dark:text-slate-400">{option.college_name || '默认学院'}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.grade}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.major}</td><td className="px-3 py-3 font-semibold text-blue-600 dark:text-blue-400">{option.class_name}</td><td className="px-3 py-3">{option.counselors?.length ? option.counselors.map(item => `${item.name}（${item.grade || '未设置年级'}）`).join('、') : '未绑定'}</td><td className="px-3 py-3"><div className="flex justify-end gap-2"><button onClick={() => beginEditClassOption(option)} title="编辑" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950"><Pencil className="h-3.5 w-3.5" /></button><button onClick={() => removeClassOption(option.id)} title="删除" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>)}</tbody></table></div>
             )}
           </div>
         ) : activeSubTab === 'assistants' ? (
@@ -1121,9 +1121,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                   {getAllDatabaseClasses().map(cls => <option key={cls} value={cls}>{cls}</option>)}
                 </select>
               </div>
-              <button onClick={promoteAssistant} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl h-9 flex items-center justify-center gap-1.5">
+              <button onClick={promoteAssistant} className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white hover:bg-blue-700 sm:w-auto">
                 <ArrowUp className="w-3.5 h-3.5" />
-                提升为班委
+                <span>提升为班委</span>
               </button>
             </div>
             <p className="text-xs text-slate-500">💡 该学生需已登录过系统。提升后退出重登即可看到班委审核功能。</p>
@@ -1180,7 +1180,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                         {isSuperAdmin && (
                           <button
                             onClick={() => deleteStudentRecord(student)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"
                             title="删除记录"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1241,20 +1241,22 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       <td className="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
                         {(teacher as any).classes ? (Array.isArray((teacher as any).classes) ? (teacher as any).classes.join('、') : (teacher as any).classes) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-right flex items-center gap-1 justify-end">
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
                         {(isSuperAdmin || (currentUser?.role === 'counselor' && myTeacher?.id === teacher.id)) && (
                           <>
-                            <button onClick={() => openEditTeacherGrade(teacher)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors" title={isSuperAdmin ? '编辑管理年级' : '提交年级变更申请'}>
+                            <button onClick={() => openEditTeacherGrade(teacher)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-950/40" title={isSuperAdmin ? '编辑管理年级' : '提交年级变更申请'}>
                               <span className="text-[11px] font-bold">级</span>
                             </button>
-                            <button onClick={() => openEditTeacherClasses(teacher)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors" title={isSuperAdmin ? '编辑班级' : '提交班级变更申请'}>
+                            <button onClick={() => openEditTeacherClasses(teacher)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40" title={isSuperAdmin ? '编辑班级' : '提交班级变更申请'}>
                               <ClipboardList className="w-3.5 h-3.5" />
                             </button>
                           </>
                         )}
                         {isSuperAdmin && (
-                          <button onClick={() => deleteTeacherRecord(teacher)} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer" title="删除记录"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => deleteTeacherRecord(teacher)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 cursor-pointer" title="删除记录"><Trash2 className="w-3.5 h-3.5" /></button>
                         )}
+                        </div>
                       </td>
                     </tr>
                   ))

@@ -93,11 +93,11 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
       {/* Top Banner */}
       <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-6 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h2 className="flex min-w-0 items-start gap-2 text-lg font-bold text-slate-900 dark:text-white sm:items-center">
                 <FileCheck2 className="w-5 h-5 text-blue-600" />
-                <span>学生申报材料协同审核中心</span>
+                <span className="min-w-0">学生申报材料协同审核中心</span>
               </h2>
               {pendingCount > 0 && (
                 <span className="px-2.5 py-0.5 text-xs font-bold bg-amber-500 text-white rounded-full">
@@ -110,14 +110,14 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end">
             <span className="text-xs font-medium text-slate-500 hidden sm:inline">审核身份:</span>
-            <span className="px-3 py-1 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 font-semibold text-xs rounded-xl border border-blue-200 dark:border-blue-800">
+            <span className="max-w-full truncate rounded-xl border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
               {currentUser.name} ({currentUser.role === 'counselor' ? '辅导员' : currentUser.role === 'admin' ? '系统管理员' : '学委/班委'})
             </span>
             <button
               onClick={() => exportMaterialAuditRecordsExcel(filteredMaterials, `加分材料审核明细表_${selectedStatus}.xlsx`)}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl flex items-center space-x-1 shadow-sm transition-colors cursor-pointer"
+              className="flex w-full items-center justify-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 sm:w-auto cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>导出材料审核 Excel</span>
@@ -191,8 +191,8 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
             >
               <div>
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <div className="flex items-center space-x-1.5">
+                <div className="mb-2 flex items-start justify-between gap-2 text-xs">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                     <span className="font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-900">
                       {mat.categoryName}
                     </span>
@@ -204,17 +204,17 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                   </div>
 
                   {mat.status === 'pending' && (
-                    <span className="flex items-center text-amber-600 font-semibold text-[11px]">
+                    <span className="inline-flex shrink-0 items-center text-amber-600 font-semibold text-[11px]">
                       <Clock className="w-3.5 h-3.5 mr-1" /> 待复核
                     </span>
                   )}
                   {mat.status === 'approved' && (
-                    <span className="flex items-center text-emerald-600 font-semibold text-[11px]">
+                    <span className="inline-flex shrink-0 items-center text-emerald-600 font-semibold text-[11px]">
                       <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 已通过 (+{mat.approvedScore}分)
                     </span>
                   )}
                   {mat.status === 'rejected' && (
-                    <span className="flex items-center text-rose-600 font-semibold text-[11px]">
+                    <span className="inline-flex shrink-0 items-center text-rose-600 font-semibold text-[11px]">
                       <XCircle className="w-3.5 h-3.5 mr-1" /> 已退回
                     </span>
                   )}
@@ -232,12 +232,12 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                   </div>
                 )}
 
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
-                  <div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">
+                  <div className="min-w-0">
                     <span className="font-bold text-slate-800 dark:text-slate-200">{mat.studentName}</span>
-                    <span className="text-[10px] text-slate-400 block font-mono">{mat.studentId} · {mat.majorClass}</span>
+                    <span className="block truncate text-[10px] text-slate-400 font-mono">{mat.studentId} · {mat.majorClass}</span>
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <span className="text-[10px] text-slate-400 block">申请加分</span>
                     <span className="font-bold text-blue-600 dark:text-blue-400">+{mat.requestedScore} 分</span>
                   </div>
@@ -255,7 +255,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
 
                 <button
                   onClick={() => openReviewModal(mat)}
-                  className="w-full py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center space-x-1.5 transition-colors"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
                   <Eye className="w-3.5 h-3.5" />
                   <span>{currentUser.role === 'admin' ? '查看材料流转详情' : mat.status === 'pending' ? '审查该材料附件并打分' : '查看审查详情'}</span>
@@ -270,12 +270,12 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
       {activeMaterial && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="surface-elevated rounded-2xl w-full max-w-2xl p-6 space-y-5 my-8">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div>
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3 dark:border-slate-800">
+              <div className="min-w-0">
                 <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-0.5 rounded-md border border-blue-200 dark:border-blue-800">
                   {activeMaterial.categoryName} · {activeMaterial.academicYear}学年
                 </span>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white mt-1">
+                <h3 className="mt-1 break-words text-base font-bold text-slate-900 dark:text-white">
                   {activeMaterial.title}
                 </h3>
               </div>
@@ -395,7 +395,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                     <button
                       type="button"
                       onClick={handleReject}
-                      className="w-full sm:w-auto justify-center px-4 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 text-rose-600 border border-rose-200 dark:border-rose-900 text-xs font-bold rounded-xl flex items-center space-x-1 cursor-pointer"
+                    className="flex w-full items-center justify-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-bold text-rose-600 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/60 sm:w-auto cursor-pointer"
                     >
                       <XCircle className="w-4 h-4" />
                       <span>退回驳回</span>
@@ -403,7 +403,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                     <button
                       type="button"
                       onClick={handleApprove}
-                      className="w-full sm:w-auto justify-center px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center space-x-1 shadow-md shadow-blue-600/20 cursor-pointer"
+                    className="flex w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 sm:w-auto cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
                       <span>{currentUser.role === 'assistant' ? '初审通过并提交辅导员终审' : '终审通过并计入综测总分'}</span>

@@ -202,10 +202,10 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
       {/* Top Banner */}
       <div className="surface-elevated rounded-2xl p-4 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center space-x-2">
+          <div className="min-w-0">
+            <h2 className="flex min-w-0 items-start gap-2 text-lg font-bold text-slate-900 dark:text-white sm:items-center">
               <FileSpreadsheet className="w-5 h-5 text-blue-600" />
-              <span>{isAdmin ? '全院 / 各年级 / 各班级综测成绩分板块导出中心' : '负责班级综测成绩导出中心'}</span>
+              <span className="min-w-0">{isAdmin ? '全院 / 各年级 / 各班级综测成绩分板块导出中心' : '负责班级综测成绩导出中心'}</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               {isAdmin
@@ -214,17 +214,17 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center shrink-0">
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:flex-wrap lg:items-center lg:justify-end shrink-0">
             <button
               onClick={handleExportExcel}
-              className="w-full lg:w-auto px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-500 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-amber-500/20 transition-all hover:bg-amber-600 lg:w-auto cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>{selectedProject === 'comprehensive' ? '导出综合登分表 (.xlsx)' : '导出单项成绩表 (.xlsx)'}</span>
             </button>
             <button
               onClick={handleExportProofImages}
-              className="w-full lg:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-blue-600/20 transition-all hover:bg-blue-700 lg:w-auto cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>导出证明图片包 (.zip)</span>
@@ -233,7 +233,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
               <button
                 onClick={handleCheckProofFiles}
                 disabled={checkingProofs}
-                className="w-full lg:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white shadow-md shadow-emerald-600/20 transition-all hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 lg:w-auto cursor-pointer"
               >
                 <ShieldCheck className="w-4 h-4" />
                 <span>{checkingProofs ? '检查中...' : '检查图片一致性'}</span>
@@ -281,8 +281,8 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
               />
             </div>
 
-            {isAdmin && <div className="flex items-center gap-2">
-              <span className="text-slate-500 text-[11px]">年级:</span>
+            {isAdmin && <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-slate-500 text-[11px]">年级:</span>
               <select
                 value={selectedGrade}
                 onChange={e => setSelectedGrade(e.target.value)}
@@ -295,8 +295,8 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
               </select>
             </div>}
 
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500 text-[11px]">班级:</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-slate-500 text-[11px]">班级:</span>
               <select
                 value={selectedClassKey}
                 onChange={e => setSelectedClassKey(e.target.value)}
@@ -315,8 +315,8 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
               </select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500 text-[11px]">导出项目:</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 text-slate-500 text-[11px]">导出项目:</span>
               <select
                 value={selectedProject}
                 onChange={e => setSelectedProject(e.target.value)}

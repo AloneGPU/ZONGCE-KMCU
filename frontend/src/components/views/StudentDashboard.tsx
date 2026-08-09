@@ -49,12 +49,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {/* Dedicated Material Declaration Header */}
         <div className="surface-elevated text-slate-900 dark:text-white rounded-2xl p-6 md:p-8 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent" />
-          <div className="space-y-2">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-semibold">
+          <div className="min-w-0 space-y-2">
+            <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
               <FileText className="w-3.5 h-3.5" />
-              <span>加分材料申报与管理中心</span>
+              <span className="min-w-0 truncate">加分材料申报与管理中心</span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">
+            <h1 className="break-words text-2xl font-bold tracking-tight">
               {currentUser.name} 同学 · 证明材料申报
             </h1>
             <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -81,7 +81,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         {/* Filter & Material List View */}
           <div className="surface-elevated rounded-2xl p-6 space-y-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               {(['all', 'pending', 'approved', 'rejected'] as const).map((st) => {
                 const count = st === 'all' ? studentMaterials.length : studentMaterials.filter(m => m.status === st).length;
                 const labels = { all: '全部申报', pending: '待审核', approved: '已通过加分', rejected: '被退回' };
@@ -89,7 +89,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <button
                     key={st}
                     onClick={() => setMaterialFilter(st)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                       materialFilter === st
                         ? 'bg-amber-500 text-white shadow-sm'
                         : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
@@ -124,51 +124,51 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               {filteredMaterials.map(mat => (
                 <div
                   key={mat.id}
-                  className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-blue-200 dark:hover:border-blue-800 transition-all"
+                  className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 hover:border-blue-200 dark:hover:border-blue-800 transition-all"
                 >
-                  <div className="space-y-1.5 flex-1">
-                    <div className="flex items-center space-x-2">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900 rounded">
                         {mat.categoryName}
                       </span>
-                      <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                      <h4 className="min-w-0 break-words font-bold text-sm text-slate-900 dark:text-white">
                         {mat.title}
                       </h4>
                     </div>
                     <p className="text-xs text-slate-600 dark:text-slate-300">
                       {mat.description}
                     </p>
-                    <div className="text-[10px] text-slate-400 flex items-center space-x-3">
+                    <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span>提交于: {mat.submittedAt}</span>
                       {mat.awardMonth && <span>获奖时间: {mat.awardMonth}</span>}
                       {mat.reviewerName && <span>审核员: {mat.reviewerName}</span>}
                     </div>
                   </div>
 
-                  <div className="flex items-center space-x-4 self-end sm:self-center shrink-0">
-                    <div className="text-right">
+                  <div className="flex w-full flex-wrap items-center justify-end gap-3 lg:w-auto lg:shrink-0">
+                    <div className="text-right shrink-0">
                       <span className="text-[10px] text-slate-400 block">申请分值</span>
                       <span className="font-bold text-amber-600 dark:text-amber-400 text-xs font-mono">+{mat.requestedScore} 分</span>
                     </div>
 
-                    <div>
+                    <div className="min-w-0 max-w-full">
                       {mat.status === 'pending' && (
-                        <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900 rounded-lg flex items-center">
+                        <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-600 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-400">
                           <Clock className="w-3.5 h-3.5 mr-1 animate-pulse" /> 待班委审核
                         </span>
                       )}
                       {mat.status === 'assistant_approved' && (
-                        <span className="px-2.5 py-1 text-xs font-semibold bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900 rounded-lg flex items-center">
+                        <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600 dark:border-blue-900 dark:bg-blue-950/50 dark:text-blue-400">
                           <Clock className="w-3.5 h-3.5 mr-1" /> 待辅导员终审
                         </span>
                       )}
                       {mat.status === 'approved' && (
-                        <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 rounded-lg flex items-center">
+                        <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-400">
                           <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> 已核准 (+{mat.approvedScore}分)
                         </span>
                       )}
                       {mat.status === 'rejected' && (
-                        <span className="px-2.5 py-1 text-xs font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900 rounded-lg flex items-center" title={mat.rejectReason}>
+                        <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-400" title={mat.rejectReason}>
                           <XCircle className="w-3.5 h-3.5 mr-1" /> 已退回: {mat.rejectReason || '材料不符合规范'}
                         </span>
                       )}
@@ -199,10 +199,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       <div className="surface-elevated text-slate-900 dark:text-white rounded-2xl p-6 md:p-8 relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs">
+          <div className="min-w-0 space-y-2">
+            <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{activeAcademicYear} 学年综测成绩看板</span>
+              <span className="min-w-0 truncate">{activeAcademicYear} 学年综测成绩看板</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight">
               你好，{currentUser.name} 同学！
@@ -212,11 +212,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
             <button
               onClick={onOpenUploadModal}
               disabled={activeYearObj?.isLocked}
-              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-lg ${
+              className={`justify-center px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-lg ${
                 activeYearObj?.isLocked
                   ? 'bg-slate-700 text-slate-400 cursor-not-allowed'
                   : 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/30'
@@ -228,7 +228,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
             <button
               onClick={onNavigateToPDF}
-              className="motion-lift px-4 py-2.5 bg-white/70 dark:bg-white/10 hover:bg-white/90 dark:hover:bg-white/20 text-slate-700 dark:text-white border border-slate-200 dark:border-white/20 rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 backdrop-blur-md"
+              className="motion-lift justify-center px-4 py-2.5 bg-white/70 dark:bg-white/10 hover:bg-white/90 dark:hover:bg-white/20 text-slate-700 dark:text-white border border-slate-200 dark:border-white/20 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 backdrop-blur-md"
             >
               <Download className="w-4 h-4" />
               <span>生成登记表 (PDF导出)</span>
@@ -372,14 +372,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             {studentMaterials.map(mat => (
               <div
                 key={mat.id}
-                className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+                className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
               >
-                <div className="space-y-1 flex-1">
-                  <div className="flex items-center space-x-2">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 rounded">
                       {mat.categoryName}
                     </span>
-                    <h4 className="font-bold text-xs text-slate-900 dark:text-white">
+                    <h4 className="min-w-0 break-words font-bold text-xs text-slate-900 dark:text-white">
                       {mat.title}
                     </h4>
                   </div>
@@ -392,30 +392,30 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-4 self-end sm:self-center">
-                  <div className="text-right">
+                <div className="flex w-full flex-wrap items-center justify-end gap-3 lg:w-auto lg:shrink-0">
+                  <div className="shrink-0 text-right">
                     <span className="text-[10px] text-slate-400 block">加分申请</span>
                     <span className="font-bold text-amber-600 text-xs">+{mat.requestedScore} 分</span>
                   </div>
 
-                  <div>
+                  <div className="min-w-0 max-w-full">
                     {mat.status === 'pending' && (
-                      <span className="px-2.5 py-1 text-xs font-semibold bg-amber-50 text-amber-600 border border-amber-200 rounded-lg flex items-center">
+                      <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-600">
                         <Clock className="w-3 h-3 mr-1" /> 待班委审核
                       </span>
                     )}
                     {mat.status === 'assistant_approved' && (
-                      <span className="px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-600 border border-blue-200 rounded-lg flex items-center">
+                      <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600">
                         <Clock className="w-3 h-3 mr-1" /> 待辅导员终审
                       </span>
                     )}
                     {mat.status === 'approved' && (
-                      <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg flex items-center">
+                      <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600">
                         <CheckCircle2 className="w-3 h-3 mr-1" /> 已通过 (+{mat.approvedScore}分)
                       </span>
                     )}
                     {mat.status === 'rejected' && (
-                      <span className="px-2.5 py-1 text-xs font-semibold bg-rose-50 text-rose-600 border border-rose-200 rounded-lg flex items-center" title={mat.rejectReason}>
+                      <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-600" title={mat.rejectReason}>
                         <XCircle className="w-3 h-3 mr-1" /> 被退回
                       </span>
                     )}
