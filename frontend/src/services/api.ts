@@ -10,6 +10,17 @@ const CATEGORY_BY_NAME: Record<string, RuleCategoryConfig['category']> = {
   '能力': 'ability', '美育': 'aesthetics', '劳动': 'labor', '劳育': 'labor'
 };
 
+// 全局 401 回调：token 失效（被其它设备登录挤下线/过期）时通知 UI 回到登录页
+let unauthorizedHandler: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
+
+function handleUnauthorized() {
+  localStorage.removeItem(TOKEN_KEY);
+  unauthorizedHandler?.();
+}
+
 function getToken() {
   return localStorage.getItem(TOKEN_KEY) || '';
 }
@@ -32,7 +43,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   const response = await fetch(BASE_URL + '/api' + path, { cache: 'no-store', ...options, headers });
-  if (response.status === 401) localStorage.removeItem(TOKEN_KEY);
+  if (response.status === 401) handleUnauthorized();
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
     throw new Error(body.error || body.message || '请求失败');
@@ -108,35 +119,44 @@ export function mapSubmission(submission: any): ProofMaterial {
   };
 }
 
-function scoreOf(ranking: any, moduleName: string) {
+function moduleScore(ranking: any, moduleName: string) {
   const module = (ranking.modules || []).find((item: any) => item.moduleName === moduleName);
-  return Number(module?.score || 0);
+  if (!module) return null;
+  return {
+    score: Number(module.score || 0),
+    base: Number(module.baseScore || 0),
+    // 服务端已含基础分时用 finalScore，兼容未升级前的旧响应
+    final: Number(module.finalScore ?? module.score ?? 0),
+  };
 }
 
 export function mapRanking(ranking: any, year: string, college = ''): StudentScoreSummary {
-  const moralDelta = scoreOf(ranking, '德育');
-  const abilityDelta = scoreOf(ranking, '能力');
-  const aestheticDelta = scoreOf(ranking, '美育');
-  const laborDelta = scoreOf(ranking, '劳动') || scoreOf(ranking, '劳育');
-  const moralFinal = 60 + moralDelta;
-  const intellectualFinal = scoreOf(ranking, '智育');
-  const physicalFinal = scoreOf(ranking, '体育');
-  const abilityFinal = 60 + abilityDelta;
-  const aestheticsFinal = 60 + aestheticDelta;
-  const laborFinal = 60 + laborDelta;
+  // 分数一律来自服务端:score=模块原始加分, finalScore=已含基础分的最终分
+  const ZERO = { score: 0, base: 0, final: 0 };
+  const moral = moduleScore(ranking, '德育') || ZERO;
+  const ability = moduleScore(ranking, '能力') || ZERO;
+  const aesthetic = moduleScore(ranking, '美育') || ZERO;
+  const labor = moduleScore(ranking, '劳动') || moduleScore(ranking, '劳育') || ZERO;
+  const intellectual = moduleScore(ranking, '智育') || ZERO;
+  const physical = moduleScore(ranking, '体育') || ZERO;
   const totalScore = Number(ranking.totalScore || 0);
+
+  const moralDelta = moral.score;
+  const abilityDelta = ability.score;
+  const aestheticDelta = aesthetic.score;
+  const laborDelta = labor.score;
 
   return {
     studentId: ranking.studentCode, studentName: ranking.studentName, grade: ranking.grade || '',
     majorClass: ranking.className || '', college, academicYear: year,
-    moralBase: 60, moralDeduction: Math.max(0, -moralDelta), intellectualBase: intellectualFinal,
-    physicalBase: physicalFinal, abilityBase: 60, aestheticsBase: 60, laborBase: 60,
+    moralBase: moral.base, moralDeduction: Math.max(0, -moralDelta), intellectualBase: intellectual.final,
+    physicalBase: physical.final, abilityBase: ability.base, aestheticsBase: aesthetic.base, laborBase: labor.base,
     moralBonus: Math.max(0, moralDelta), intellectualBonus: 0, physicalBonus: 0,
     abilityBonus: Math.max(0, abilityDelta), aestheticsBonus: Math.max(0, aestheticDelta),
     laborBonus: Math.max(0, laborDelta), extraBonus: 0,
-    moralFinal, intellectualFinal, physicalFinal, abilityFinal, aestheticsFinal, laborFinal,
+    moralFinal: moral.final, intellectualFinal: intellectual.final, physicalFinal: physical.final, abilityFinal: ability.final, aestheticsFinal: aesthetic.final, laborFinal: labor.final,
     evaluationGrade: totalScore >= 90 ? '优秀' : totalScore >= 80 ? '良好' : totalScore >= 70 ? '中等' : totalScore >= 60 ? '合格' : '不合格',
-    isDisqualified: moralFinal < 60 || intellectualFinal < 60,
+    isDisqualified: moral.final < 60 || intellectual.final < 60,
     totalScore, classRank: Number(ranking.rank || 0), classTotal: 0, gradeRank: 0, gradeTotal: 0
   };
 }
@@ -144,6 +164,15 @@ export function mapRanking(ranking: any, year: string, college = ''): StudentSco
 export const apiService = {
   clearSession() { localStorage.removeItem(TOKEN_KEY); },
   hasSession() { return Boolean(getToken()); },
+  async logout() {
+    try {
+      if (getToken()) await request('/auth/logout', { method: 'POST' });
+    } catch (_error) {
+      // Local cleanup must still happen if the server session is already expired.
+    } finally {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  },
   async fetchRegisterOptions() {
     return request<{
       colleges: Array<{ id: number; name: string; code: string }>;
@@ -191,7 +220,13 @@ export const apiService = {
   },
   async fetchAcademicYears(): Promise<AcademicYearConfig[]> {
     const result = await request<{ years: any[] }>('/years');
-    return result.years.map(item => ({ year: item.name, isCurrent: Boolean(item.is_current), isLocked: false }));
+    return result.years.map(item => ({
+      id: Number(item.id),
+      year: item.name,
+      isCurrent: Boolean(item.is_current),
+      isLocked: Boolean(item.is_locked),
+      deadline: item.deadline || undefined
+    }));
   },
   async fetchStudents(): Promise<StudentRecord[]> {
     const result = await request<{ students: any[] }>('/admin/students');
@@ -244,6 +279,7 @@ export const apiService = {
 
       xhr.onload = () => {
         try {
+          if (xhr.status === 401) handleUnauthorized();
           const result = JSON.parse(xhr.responseText);
           if (xhr.status >= 200 && xhr.status < 300) {
             resolve(mapSubmission(result.submission));
@@ -257,6 +293,9 @@ export const apiService = {
     });
   },
   deleteMaterial(id: string) { return request('/student/submissions/' + id, { method: 'DELETE' }); },
+  adminDeleteMaterial(id: string) { return request('/admin/submissions/' + id, { method: 'DELETE' }); },
+  counselorDeleteMaterial(id: string) { return request('/counselor/submissions/' + id, { method: 'DELETE' }); },
+  cleanupProofOrphans(files: string[]) { return request<{ deletedCount: number; failedCount: number }>('/admin/proofs/cleanup', { method: 'POST', body: JSON.stringify({ files }) }); },
   reviewMaterial(role: User['role'], id: string, action: 'approve' | 'reject', reason?: string) {
     const root = role === 'assistant' ? '/assistant' : role === 'admin' ? '/admin' : '/counselor';
     return request(root + '/review/' + id, { method: 'PUT', body: JSON.stringify({ action, reason: reason || '' }) });
@@ -266,7 +305,7 @@ export const apiService = {
     const ranking = {
       studentCode: result.student.student_id, studentName: result.student.name, className: result.student.class_name,
       grade: result.student.grade, totalScore: result.totalScore, rank: result.rank,
-      modules: result.moduleScores.map((item: any) => ({ moduleName: item.name, score: item.score }))
+      modules: result.moduleScores.map((item: any) => ({ moduleName: item.name, score: item.score, baseScore: item.baseScore, finalScore: item.finalScore }))
     };
     const summary = mapRanking(ranking, year, result.student.college_name || '');
     summary.classTotal = Number(result.totalInClass || 0);
@@ -279,6 +318,16 @@ export const apiService = {
     const summaries = result.rankings.map(item => mapRanking(item, year));
     summaries.forEach(item => { item.classTotal = summaries.length; });
     return { summaries, className: result.className, classNames: result.classNames };
+  },
+
+  // 班委获取本班/本年级全量成绩（用于班级综测数据监察补全）
+  async fetchAssistantClassScores(year: string) {
+    const result = await request<{ rankings: any[]; className: string; grade: string }>(
+      '/assistant/scores' + toQuery({ yearId: year })
+    );
+    const summaries = result.rankings.map(item => mapRanking(item, year));
+    summaries.forEach(item => { item.classTotal = summaries.length; });
+    return { summaries, className: result.className, grade: result.grade };
   },
 
   // 辅导员获取所有负责班级的成绩
@@ -322,7 +371,8 @@ export const apiService = {
     });
   },
   toggleRules(role: User['role']) {
-    return request(role === 'admin' ? '/admin/rules/lock' : '/counselor/rules/lock', { method: 'PUT' });
+    // 规则锁定仅对管理员开放；辅导员/班委端不提供锁定接口
+    return request('/admin/rules/lock', { method: 'PUT' });
   },
   // 管理员规则 CRUD
   createScoringModule(name: string, weight: number) { return request('/admin/rules/modules', { method: 'POST', body: JSON.stringify({ name, weight }) }); },
@@ -332,7 +382,15 @@ export const apiService = {
   updateScoringItem(id: number, data: { moduleId?: number; name?: string; maxScore?: number; description?: string; requiresProof?: boolean; evidence?: string }) { return request('/admin/rules/items/' + id, { method: 'PUT', body: JSON.stringify(data) }); },
   deleteScoringItem(id: number) { return request('/admin/rules/items/' + id, { method: 'DELETE' }); },
   // 用户管理
-  createYear(name: string) { return request('/admin/years', { method: 'POST', body: JSON.stringify({ name }) }); },
+  createYear(name: string, deadline?: string) {
+    return request<{ year: any }>('/admin/years', { method: 'POST', body: JSON.stringify({ name, deadline: deadline || null }) });
+  },
+  toggleYearLock(id: number, locked: boolean) {
+    return request('/admin/years/' + id + '/lock', { method: 'PUT', body: JSON.stringify({ locked }) });
+  },
+  activateYear(id: number) {
+    return request('/admin/years/' + id + '/activate', { method: 'PUT' });
+  },
   createStudent(data: any) { return request('/admin/students', { method: 'POST', body: JSON.stringify(data) }); },
   createTeacher(data: any) { return request('/admin/teachers', { method: 'POST', body: JSON.stringify(data) }); },
   updateTeacher(id: string, data: any) { return request('/admin/teachers/' + id, { method: 'PUT', body: JSON.stringify(data) }); },

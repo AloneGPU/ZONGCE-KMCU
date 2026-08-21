@@ -125,7 +125,9 @@ async function mapLoginUser(user) {
 
 // ==================== 统一登录（本地账号） ====================
 exports.login = async (req, res) => {
+  let conn;
   try {
+    conn = await pool.getConnection();
     const account = cleanText(req.body.account, 50);
     const password = String(req.body.password || '');
     if (!account || !password) return res.status(400).json({ error: '请输入账号和密码' });
@@ -135,12 +137,25 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: isStudentId(account) ? '学号或密码错误，请先注册或联系管理员' : '账号或密码错误' });
     }
 
-    const token = signToken(user);
-    const mappedUser = await mapLoginUser(user);
+    await conn.beginTransaction();
+    await conn.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [user.id]);
+    await conn.query('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [user.id]);
+    const [updatedRows] = await conn.query(
+      'SELECT id, account, role, name, email, token_version FROM users WHERE id = ?',
+      [user.id]
+    );
+    await conn.commit();
+
+    const activeUser = updatedRows[0];
+    const token = signToken(activeUser);
+    const mappedUser = await mapLoginUser(activeUser);
     res.json({ token, user: mappedUser });
   } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
     console.error('登录错误:', err);
     res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : '服务器内部错误' });
+  } finally {
+    if (conn) conn.release();
   }
 };
 
@@ -570,6 +585,15 @@ exports.getMe = async (req, res) => {
     const u = await User.getFullInfo(req.user.userId, req.user.role);
     res.json({ user: u || {} });
   } catch (e) { res.status(500).json({ error: e.message }); }
+};
+
+exports.logout = async (req, res) => {
+  try {
+    await pool.query('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [req.user.userId]);
+    res.json({ message: '已退出登录' });
+  } catch (e) {
+    res.status(500).json({ error: e.message || '退出登录失败' });
+  }
 };
 
 exports.changePassword = async (req, res) => {

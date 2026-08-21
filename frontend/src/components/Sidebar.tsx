@@ -50,10 +50,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'admin':
         return [
           { key: 'overview', label: '数据系统概览', icon: LayoutDashboard, category: '管理控制' },
+          { key: 'audit-center', label: '材料复核终审中心', icon: FileCheck2, category: '管理控制', badge: pendingCount },
           { key: 'user-import', label: '用户与管理', icon: Users, category: '管理控制' },
           { key: 'rules-config', label: '计分规则配置', icon: Settings, category: '管理控制' },
           { key: 'excel-import', label: '基础成绩批量导入', icon: Upload, category: '管理控制' },
-          { key: 'score-export', label: '全院综测成绩导出', icon: FileSpreadsheet, category: '报表中心' }
+          { key: 'score-export', label: '全院综测成绩导出', icon: FileSpreadsheet, category: '报表中心' },
+          { key: 'archiving', label: '学年归档管理', icon: Archive, category: '报表中心' }
         ];
 
       case 'counselor':

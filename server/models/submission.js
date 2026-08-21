@@ -83,6 +83,21 @@ const Submission = {
     return rows[0] || null;
   },
 
+  // 学生对自己材料的查询：ID + 学生双重条件，防止越权读取他人提交
+  async findByIdForStudent(id, studentId) {
+    const [rows] = await pool.query(
+      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade,
+              sm.name as module_name, si.name as item_name, ay.name as year_name
+       FROM submissions sub
+       JOIN students s ON sub.student_id = s.id
+       LEFT JOIN scoring_modules sm ON sub.module_id = sm.id
+       LEFT JOIN scoring_items si ON sub.item_id = si.id
+       LEFT JOIN academic_years ay ON sub.academic_year_id = ay.id
+       WHERE sub.id = ? AND sub.student_id = ?`, [id, studentId]
+    );
+    return rows[0] || null;
+  },
+
   async create({ studentId, academicYearId, moduleId, itemId, score, description, awardMonth, proofFilename, proofPath, initialStatus }) {
     const status = initialStatus || 'pending';
     const [result] = await pool.query(

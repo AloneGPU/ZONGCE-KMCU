@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const Teacher = require('../models/teacher');
 const { streamZipFiles } = require('../utils/zip');
-const { sanitizeFilePart, getUploadRoot } = require('../utils/upload');
+const { sanitizeFilePart, getUploadRoot, resolveStoredFile } = require('../utils/upload');
 const { resolveManagedClassScope, canonicalizeClassNames, normalizeClassName, normalizeGrade } = require('../utils/className');
 
 async function filterRankingsForRequester(req, rankings, className) {
@@ -33,7 +33,8 @@ async function filterRankingsForRequester(req, rankings, className) {
 
 function actualModuleScore(moduleId, score) {
   const raw = Number(score || 0);
-  return [1, 4, 5, 6].includes(Number(moduleId)) ? 60 + raw : raw;
+  // 基础分规则统一由 Score.moduleBaseScore 提供，避免此处硬编码重复
+  return Score.moduleBaseScore(moduleId) + raw;
 }
 
 function styleExportSheet(ws) {
@@ -195,6 +196,52 @@ exports.checkProofFileConsistency = async (req, res) => {
   }
 };
 
+// 清理一致性检查中发现的孤立图片（仅限数据库已无引用的文件）
+exports.cleanupOrphanProofFiles = async (req, res) => {
+  try {
+    const files = Array.isArray(req.body && req.body.files) ? req.body.files : [];
+    if (files.length === 0) return res.status(400).json({ error: '没有选择要清理的文件' });
+    if (files.length > 200) return res.status(400).json({ error: '单次最多清理 200 个文件' });
+
+    const [allRows] = await pool.query(
+      "SELECT proof_path FROM submissions WHERE proof_path IS NOT NULL AND proof_path != ''"
+    );
+    const dbPaths = new Set(allRows.map(r => String(r.proof_path).replace(/\\/g, '/')));
+
+    const deleted = [];
+    const failed = [];
+    for (const raw of files) {
+      const rel = String(raw || '').replace(/\\/g, '/');
+      if (!rel || rel.includes('..') || rel.startsWith('/') || /^[a-zA-Z]:/.test(rel)) {
+        failed.push({ file: raw, reason: '非法路径' });
+        continue;
+      }
+      if (dbPaths.has(rel)) {
+        failed.push({ file: rel, reason: '数据库仍引用该文件，已跳过' });
+        continue;
+      }
+      try {
+        const fullPath = resolveStoredFile(rel); // 强制限定在 UPLOAD_ROOT 内
+        fs.unlinkSync(fullPath);
+        deleted.push(rel);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          deleted.push(rel); // 文件本来就不存在，视为清理成功
+        } else {
+          failed.push({ file: rel, reason: err.message });
+        }
+      }
+    }
+
+    await auditLog(req, 'proofFiles.cleanup', 'academic_year', 0, {
+      deletedCount: deleted.length, failedCount: failed.length,
+    });
+    res.json({ deletedCount: deleted.length, failedCount: failed.length, deleted, failed });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+};
+
 // 导出综合成绩 CSV
 exports.exportClassCSV = async (req, res) => {
   try {
@@ -207,6 +254,8 @@ exports.exportClassCSV = async (req, res) => {
     rankings = await filterRankingsForRequester(req, rankings, className);
     if (grade && grade !== 'all') rankings = rankings.filter(item => normalizeGrade(item.grade) === normalizeGrade(grade));
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
+    // 预热基础分缓存，actualModuleScore 内部只需同步读取
+    await Score.ensureBaseScores();
 
     const headers = ['排名', '学号', '姓名', '班级', ...modRows.map(m => m.name + '(' + Number(m.weight) + '%)'), '综测总分'];
     const dataRows = rankings.map(r => {
@@ -258,6 +307,7 @@ exports.exportModuleCSV = async (req, res) => {
     let rankings = await Score.getRankings(yearIdNum, className || null, grade && grade !== 'all' ? grade : undefined);
     rankings = await filterRankingsForRequester(req, rankings, className);
     if (grade && grade !== 'all') rankings = rankings.filter(item => normalizeGrade(item.grade) === normalizeGrade(grade));
+    await Score.ensureBaseScores();
 
     // 按该模块实际得分排序，德育/能力/美育/劳动包含60分基础分。
     rankings.sort((a, b) => {

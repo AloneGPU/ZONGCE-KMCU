@@ -93,6 +93,9 @@ router.post('/scores/import', submissionCtrl.importScores);
 router.get('/review', submissionCtrl.getReviewList);
 router.put('/review/:id', submissionCtrl.review);
 
+// 强制删除负责班级内材料（登录状态任意，锁定学年除外）
+router.delete('/submissions/:id', submissionCtrl.counselorDeleteSubmission);
+
 // 导出
 router.get('/export/class', exportCtrl.exportClassCSV);
 router.get('/export/module', exportCtrl.exportModuleCSV);

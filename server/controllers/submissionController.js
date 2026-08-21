@@ -15,6 +15,16 @@ function cleanupIncomingFile(file) {
   } catch (e) { /* ignore cleanup errors */ }
 }
 
+// 归档锁定的学年拒绝一切数据变更（提交/修改/删除/审核/成绩导入）
+async function assertYearNotLocked(yearId) {
+  const [rows] = await pool.query('SELECT is_locked FROM academic_years WHERE id = ?', [yearId]);
+  if (rows[0] && rows[0].is_locked) {
+    const error = new Error('该学年已归档锁死，不能修改或审核数据');
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
 async function assertCanReviewSubmission(req, submission) {
   if (!submission) {
     const error = new Error('提交记录不存在');
@@ -122,6 +132,7 @@ exports.create = async (req, res) => {
 
     // 获取学年名
     const yearId = await getCurrentYearId(academicYearId);
+    await assertYearNotLocked(yearId);
     const [yearRows] = await pool.query('SELECT name FROM academic_years WHERE id = ?', [yearId]);
     const yearName = yearRows[0] ? yearRows[0].name : 'unknown';
 
@@ -199,7 +210,7 @@ exports.create = async (req, res) => {
         console.error('提交失败后的材料文件清理失败:', cleanupErr.message);
       }
     }
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 };
 
@@ -217,15 +228,17 @@ exports.getMySubmissions = async (req, res) => {
 
 exports.updateMySubmission = async (req, res) => {
   try {
-    const sub = await Submission.findById(req.params.id);
+    const student = await Student.findByUserId(req.user.userId);
+    if (!student) return res.status(404).json({ error: '未找到学生信息' });
+
+    // 只允许改本人材料：不存在或非本人的记录一律 404
+    const sub = await Submission.findByIdForStudent(req.params.id, student.id);
     if (!sub) return res.status(404).json({ error: '提交记录不存在' });
+    await assertYearNotLocked(sub.academic_year_id);
     // pending 和 rejected 的可以修改
     if (sub.status !== 'pending' && sub.status !== 'rejected') {
       return res.status(400).json({ error: '只能修改待审核或被驳回的提交' });
     }
-
-    const student = await Student.findByUserId(req.user.userId);
-    if (sub.student_id !== student.id) return res.status(403).json({ error: '无权操作' });
 
     const description = String(req.body.description || '无').trim() || '无';
     const awardMonth = req.body.award_month !== undefined || req.body.awardMonth !== undefined
@@ -242,36 +255,107 @@ exports.updateMySubmission = async (req, res) => {
     await auditLog(req, 'submission.update', 'submission', req.params.id, { description, awardMonth });
     res.json({ message: '已更新' + (newStatus ? '，已重新提交审核' : '') });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 };
 
 exports.deleteMySubmission = async (req, res) => {
   try {
-    const sub = await Submission.findById(req.params.id);
+    const student = await Student.findByUserId(req.user.userId);
+    if (!student) return res.status(404).json({ error: '未找到学生信息' });
+
+    const sub = await Submission.findByIdForStudent(req.params.id, student.id);
     if (!sub) return res.status(404).json({ error: '提交记录不存在' });
+    await assertYearNotLocked(sub.academic_year_id);
     // pending 和 rejected 的可以删除
     if (sub.status !== 'pending' && sub.status !== 'rejected') {
       return res.status(400).json({ error: '只能删除待审核或被驳回的提交' });
     }
 
-    const student = await Student.findByUserId(req.user.userId);
-    if (sub.student_id !== student.id) return res.status(403).json({ error: '无权操作' });
-
     await Submission.delete(req.params.id);
-    try {
-      require('../utils/upload').deleteStoredFile(sub.proof_path);
-    } catch (cleanupErr) {
-      console.error('材料记录已删除，但图片文件清理失败:', cleanupErr.message);
+    // 物理删除本人材料文件，避免已删材料在磁盘上残留；
+    // deleteStoredFile 内部经 resolveStoredFile 限定在 UPLOAD_ROOT 内，删除失败不影响结果。
+    if (sub.proof_path) {
+      try {
+        require('../utils/upload').deleteStoredFile(sub.proof_path);
+      } catch (cleanupErr) {
+        console.error('材料记录已删除，但图片文件清理失败:', cleanupErr.message);
+      }
     }
     await auditLog(req, 'submission.delete', 'submission', req.params.id, { studentId: student.id });
     res.json({ message: '已删除' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 };
 
-// ==================== 审核材料 ====================
+// ==================== 管理员强制删除 ====================
+// 用于清理违规/不当内容。删除已通过材料会改变对应学生成绩，前端需二次确认。
+exports.adminDeleteSubmission = async (req, res) => {
+  try {
+    const sub = await Submission.findById(req.params.id);
+    if (!sub) return res.status(404).json({ error: '提交记录不存在' });
+    await assertYearNotLocked(sub.academic_year_id);
+
+    await Submission.delete(sub.id);
+    if (sub.proof_path) {
+      try {
+        require('../utils/upload').deleteStoredFile(sub.proof_path);
+      } catch (cleanupErr) {
+        console.error('管理员删除材料后图片清理失败:', cleanupErr.message);
+      }
+    }
+    await auditLog(req, 'submission.admin_delete', 'submission', sub.id, {
+      studentId: sub.student_id, status: sub.status,
+    });
+    res.json({ message: '已强制删除该材料，成绩将随之重新计算' });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+};
+
+// ==================== 辅导员强制删除 ====================
+// 仅限删除辅导员本人负责班级内的材料；归档锁定学年一律拒绝。
+exports.counselorDeleteSubmission = async (req, res) => {
+  try {
+    const sub = await Submission.findById(req.params.id);
+    if (!sub) return res.status(404).json({ error: '提交记录不存在' });
+    await assertYearNotLocked(sub.academic_year_id);
+
+    // 先校验班级归属：只能删除自己负责班级内的材料
+    const teacher = await Teacher.findByUserId(req.user.userId);
+    if (!teacher) return res.status(404).json({ error: '未找到教师信息' });
+    const scope = await resolveManagedClassScope(pool, teacher);
+    if (scope.classNames.length === 0) {
+      return res.status(403).json({ error: '未配置负责班级，无权删除材料' });
+    }
+    const [studentRows] = await pool.query('SELECT class_name, grade FROM students WHERE id = ?', [sub.student_id]);
+    const stu = studentRows[0];
+    if (!stu) return res.status(404).json({ error: '学生信息不存在' });
+    const allowed = scope.classNames.some(item => (
+      normalizeClassName(item) === normalizeClassName(stu.class_name) &&
+        (!scope.grade || normalizeGrade(scope.grade) === normalizeGrade(stu.grade))
+    ));
+    if (!allowed) return res.status(403).json({ error: '该材料不属于当前负责的班级，无权删除' });
+
+    await Submission.delete(sub.id);
+    if (sub.proof_path) {
+      try {
+        require('../utils/upload').deleteStoredFile(sub.proof_path);
+      } catch (cleanupErr) {
+        console.error('辅导员删除材料后图片清理失败:', cleanupErr.message);
+      }
+    }
+    await auditLog(req, 'submission.counselor_delete', 'submission', sub.id, {
+      studentId: sub.student_id, status: sub.status,
+    });
+    res.json({ message: '已删除该材料，成绩将随之重新计算' });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+};
+
+// ==================== 审核流程 ====================
 exports.getReviewList = async (req, res) => {
   try {
     const { status, yearId } = req.query;
@@ -342,6 +426,7 @@ exports.review = async (req, res) => {
     const subId = req.params.id;
 
     const submission = await Submission.findById(subId);
+    await assertYearNotLocked(submission.academic_year_id);
     const reviewerRole = await assertCanReviewSubmission(req, submission);
 
     if (action === 'approve') {
@@ -386,12 +471,14 @@ exports.getMyScores = async (req, res) => {
     }
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
     const [itemRows] = await pool.query('SELECT * FROM scoring_items ORDER BY sort_order');
+    await Score.ensureBaseScores();
 
     const moduleScores = [];
     for (const mod of modRows) {
       const modScore = await Score.calcModuleScore(student.id, yearId, mod.id);
       const modItems = itemRows.filter(i => i.module_id === mod.id);
-      moduleScores.push({ ...mod, score: modScore, items: modItems });
+      const baseScore = Score.moduleBaseScore(mod.id);
+      moduleScores.push({ ...mod, score: modScore, baseScore, finalScore: modScore + baseScore, items: modItems });
     }
 
     const totalScore = await Score.calcTotalScore(student.id, yearId);
@@ -486,7 +573,7 @@ exports.getAllScores = async (req, res) => {
     const rankings = await Score.getRankings(yearId);
     res.json({ yearId, rankings });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 };
 
@@ -517,6 +604,7 @@ exports.importScores = async (req, res) => {
     if (!isAdmin && scope.classNames.length === 0) return res.status(403).json({ error: '未配置负责班级，无法导入成绩' });
     const allowedKeys = new Set(scope.classNames.map(normalizeClassName));
     const resolvedYearId = await getCurrentYearId(yearId);
+    await assertYearNotLocked(resolvedYearId);
     const resolved = [];
     const invalidRows = [];
     for (const s of scores) {

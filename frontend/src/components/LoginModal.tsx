@@ -150,10 +150,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       const saved = window.localStorage.getItem(REMEMBER_PASSWORD_KEY);
       if (!saved) return;
       const data = JSON.parse(saved);
-      if (data?.account && data?.password) {
+      // 只恢复账号；密码一律不回填（历史版本曾明文存密码，遇到时顺手清理）
+      if (data?.account) {
         setAccount(String(data.account));
-        setPassword(String(data.password));
         setRememberPassword(true);
+        if (data?.password) {
+          window.localStorage.setItem(REMEMBER_PASSWORD_KEY, JSON.stringify({ account: String(data.account) }));
+        }
       }
     } catch {
       window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
@@ -299,8 +302,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       const matchedUser = await apiService.login(account.trim(), password);
       if (rememberPassword) {
         window.localStorage.setItem(REMEMBER_PASSWORD_KEY, JSON.stringify({
-          account: account.trim(),
-          password
+          account: account.trim()
         }));
       } else {
         window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
@@ -454,10 +456,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
       const saved = window.localStorage.getItem(REMEMBER_PASSWORD_KEY);
       if (!saved) return;
       const data = JSON.parse(saved);
-      if (data?.account && data?.password) {
+      // 只恢复账号；密码一律不回填（历史版本曾明文存密码，遇到时顺手清理）
+      if (data?.account) {
         setAccount(String(data.account));
-        setPassword(String(data.password));
         setRememberPassword(true);
+        if (data?.password) {
+          window.localStorage.setItem(REMEMBER_PASSWORD_KEY, JSON.stringify({ account: String(data.account) }));
+        }
       }
     } catch {
       window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
@@ -711,7 +716,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                             }}
                             className="h-4 w-4 rounded border-slate-300 text-teal-700 focus:ring-teal-600 dark:border-slate-700 dark:bg-slate-950"
                           />
-                          记住密码
+                          记住账号
                         </span>
                         <span className="text-[11px] font-medium text-slate-400">下次自动填入</span>
                       </label>

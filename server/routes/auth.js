@@ -12,6 +12,7 @@ router.get('/register-options', authController.getRegisterOptions);
 
 // 需要认证的接口
 router.get('/me', authenticate, authController.getMe);
+router.post('/logout', authenticate, authController.logout);
 router.post('/change-password', authenticate, authController.changePassword);
 
 module.exports = router;

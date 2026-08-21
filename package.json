@@ -8,6 +8,9 @@
     "dev": "node --watch server/app.js",
     "db:init": "node server/config/initDb.js",
     "db:migrate": "node server/config/migrate.js",
+    "db:backup": "bash scripts/backup.sh",
+    "db:prune-audit": "node server/config/pruneAudit.js",
+    "smoke": "bash scripts/smoke.sh",
     "build:ui": "cd frontend && npm run build:ui",
     "build:ui:full": "cd frontend && npm run build"
   },

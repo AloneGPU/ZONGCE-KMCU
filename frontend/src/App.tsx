@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AcademicYearConfig, ProofMaterial, RuleCategoryConfig, StudentRecord, StudentScoreSummary, TeacherRecord, User } from './types';
-import { apiService } from './services/api';
+import { apiService, setUnauthorizedHandler } from './services/api';
 import { HeaderBar } from './components/HeaderBar';
 import { Sidebar, NavItemKey } from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
@@ -74,25 +74,27 @@ export default function App() {
         setStudents(fetchedStudents);
         setTeachers(fetchedTeachers);
       } else if (currentUser.role === 'assistant') {
-        const [scoreResult, mySubs, reviewMaterials] = await Promise.all([
-          apiService.fetchMyScore(queryYear),
+        const [classResult, mySubs, reviewMaterials] = await Promise.all([
+          apiService.fetchAssistantClassScores(queryYear),
           apiService.fetchMySubmissions().catch(() => []),
           apiService.fetchReview('assistant', queryYear)
         ]);
-        setSummaries([scoreResult.summary]);
+        // 班级综测数据监察需要全班成绩，而不仅是当前班委自己 1 条
+        setSummaries(classResult.summaries.length ? classResult.summaries : []);
         // 合并自己的材料 + 审核列表，自己的材料不会被覆盖
         const myMapped = mySubs.filter((item: any) => item.academicYear === queryYear);
         setMaterials([...myMapped, ...reviewMaterials]);
       } else {
-        const [fetchedStudents, fetchedTeachers, allScores] = await Promise.all([
+        const [fetchedStudents, fetchedTeachers, allScores, reviewMaterials] = await Promise.all([
           apiService.fetchStudents(),
           apiService.fetchTeachers(),
-          apiService.fetchAllScores(queryYear)
+          apiService.fetchAllScores(queryYear),
+          apiService.fetchReview('admin', queryYear)
         ]);
         setStudents(fetchedStudents);
         setTeachers(fetchedTeachers);
         setSummaries(allScores);
-        setMaterials([]);
+        setMaterials(reviewMaterials);
       }
     } catch (error: any) {
       setLoadError(error?.message || '无法从服务器加载数据');
@@ -106,6 +108,15 @@ export default function App() {
         setShowLoginModal(false);
       }).catch(() => apiService.clearSession());
     }
+  }, []);
+
+  useEffect(() => {
+    // token 失效（被其它设备登录挤下线/会话过期）时立即回到登录页
+    setUnauthorizedHandler(() => {
+      setCurrentUser(null);
+      setShowLoginModal(true);
+    });
+    return () => setUnauthorizedHandler(null);
   }, []);
 
   useEffect(() => { reload(); }, [currentUser, activeAcademicYear]);
@@ -167,8 +178,8 @@ export default function App() {
       setMaterials(prev => prev.map(m =>
         m.id === id ? { ...m, status: newStatus, approvedScore: status === 'approved' ? m.requestedScore : undefined, rejectReason: status === 'rejected' ? (reason || '') : undefined } : m
       ));
-      // 稍后刷新一次，确保服务端写入后的状态一致。
-      setTimeout(() => reload(), 1500);
+      // 服务端写入完成后再整量刷新，保持状态一致
+      await reload();
     } catch (error: any) {
       alert(error?.message || '审核提交失败');
     }
@@ -182,8 +193,8 @@ export default function App() {
       if (result) {
         setMaterials(prev => [{ ...result, status: result.status || 'pending', academicYear: data.year }, ...prev]);
       }
-      // 静默刷新确保数据一致。
-      setTimeout(() => reload(), 800);
+      // 服务端写入完成后再整量刷新，保证与数据库一致
+      await reload();
     } catch (error: any) {
       alert(error?.message || '材料提交失败');
     }
@@ -192,7 +203,7 @@ export default function App() {
   const handleDeleteMaterial = async (id: string) => {
     try {
       await apiService.deleteMaterial(id);
-      setTimeout(() => reload(), 300);
+      await reload();
     } catch (error: any) {
       alert(error?.message || '删除失败');
     }
@@ -207,7 +218,12 @@ export default function App() {
       <AppAtmosphere accent={themeAccent} />
       <HeaderBar
         currentUser={currentUser}
-        onLogout={() => { apiService.clearSession(); setCurrentUser(null); setShowLoginModal(true); }}
+        onLogout={() => {
+          void apiService.logout().finally(() => {
+            setCurrentUser(null);
+            setShowLoginModal(true);
+          });
+        }}
         activeAcademicYear={activeAcademicYear}
         onAcademicYearChange={setActiveAcademicYear}
         academicYears={academicYears}
@@ -231,7 +247,14 @@ export default function App() {
             <OverviewDashboard currentUser={currentUser} summaries={summaries} materials={materials} activeAcademicYear={activeAcademicYear} rulesLocked={rulesLocked} onNavigateTab={handleTabChange} />
           ) : null}
           {activeTab === 'my-materials' && <StudentDashboard currentUser={currentUser} summary={currentStudentSummary} materials={materials} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} academicYears={academicYears} onOpenUploadModal={openUploadModal} onDeleteMaterial={handleDeleteMaterial} onNavigateToPDF={() => handleTabChange('pdf-export')} focusView="materials" />}
-          {activeTab === 'audit-center' && currentUser.role !== 'admin' && <AuditCenter materials={materials} currentUser={currentUser} onUpdateMaterialStatus={handleReview} />}
+          {activeTab === 'audit-center' && (
+            <AuditCenter
+              materials={materials}
+              currentUser={currentUser}
+              onUpdateMaterialStatus={handleReview}
+              onForceDeleteMaterial={() => setTimeout(() => reload(), 300)}
+            />
+          )}
           {(activeTab === 'rules-config' || activeTab === 'rules-view') && <RuleManagement ruleConfigs={ruleConfigs} rulesLocked={rulesLocked} onUpdateRuleConfigs={() => reload()} onToggleLockRules={async () => { try { await apiService.toggleRules(currentUser.role); await reload(); } catch (e: any) { alert(e.message); } }} isAdmin={currentUser.role === 'admin'} currentUser={currentUser} />}
           {activeTab === 'user-import' && <UserManagement teachers={teachers} students={students} onUpdateTeachers={setTeachers} onUpdateStudents={setStudents} currentUser={currentUser} />}
           {activeTab === 'archiving' && <AcademicYearArchiving academicYears={academicYears} activeAcademicYear={activeAcademicYear} onSelectActiveYear={setActiveAcademicYear} onUpdateAcademicYears={setAcademicYears} isAdmin={currentUser.role === 'admin'} />}

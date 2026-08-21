@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { ProofMaterial, User } from '../../types';
-import { FileCheck2, CheckCircle2, XCircle, Clock, Search, Filter, Eye, AlertCircle, Sparkles, MessageSquare, Download, FileSpreadsheet } from 'lucide-react';
+import { FileCheck2, CheckCircle2, XCircle, Clock, Search, Filter, Eye, AlertCircle, Sparkles, MessageSquare, Download, FileSpreadsheet, Trash2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { exportMaterialAuditRecordsExcel } from '../../utils/excel';
+import { apiService } from '../../services/api';
 
 interface AuditCenterProps {
   materials: ProofMaterial[];
@@ -13,12 +14,14 @@ interface AuditCenterProps {
     approvedScore?: number,
     rejectReason?: string
   ) => void;
+  onForceDeleteMaterial?: (materialId: string) => void;
 }
 
 export const AuditCenter: React.FC<AuditCenterProps> = ({
   materials,
   currentUser,
-  onUpdateMaterialStatus
+  onUpdateMaterialStatus,
+  onForceDeleteMaterial
 }) => {
   const [selectedStatus, setSelectedStatus] = useState<string>('pending');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -28,6 +31,21 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
   // Review Modal State
   const [reviewScore, setReviewScore] = useState<number>(0);
   const [rejectReason, setRejectReason] = useState<string>('');
+
+  const handleAdminDelete = async (mat: ProofMaterial) => {
+    if (!window.confirm(`强制删除「${mat.title}」？该操作会同时删除材料记录与证明图片，若该材料已计入成绩，成绩将重新计算。确定继续吗？`)) return;
+    try {
+      if (currentUser?.role === 'counselor') {
+        await apiService.counselorDeleteMaterial(mat.id);
+      } else {
+        await apiService.adminDeleteMaterial(mat.id);
+      }
+      alert('已强制删除该材料');
+      onForceDeleteMaterial?.(mat.id);
+    } catch (error: any) {
+      alert(error?.message || '删除失败');
+    }
+  };
 
   const openReviewModal = (mat: ProofMaterial) => {
     setActiveMaterial(mat);
@@ -260,6 +278,15 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                   <Eye className="w-3.5 h-3.5" />
                   <span>{currentUser.role === 'admin' ? '查看材料流转详情' : mat.status === 'pending' ? '审查该材料附件并打分' : '查看审查详情'}</span>
                 </button>
+{(currentUser.role === 'admin' || currentUser.role === 'counselor') && (
+                  <button
+                    onClick={() => handleAdminDelete(mat)}
+                    className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-rose-50 py-2 text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/70 cursor-pointer border border-rose-200 dark:border-rose-900"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{currentUser.role === 'counselor' ? '删除该材料' : '强制删除该材料'}</span>
+                  </button>
+                )}
               </div>
             </div>
           ))
@@ -335,7 +362,17 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
 
             {/* Score & Review Action Panel */}
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
-              {currentUser.role === 'assistant' && activeMaterial.studentId === currentUser.studentId ? (
+              {currentUser.role === 'admin' ? (
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl">
+                  <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300 font-bold text-xs">
+                    <Eye className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+                    <span>管理员复核说明</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    管理员可查看全院材料的流转详情并执行强制删除；材料评分与终审由班委初审、辅导员终审完成。如需更正分数请退回材料并联系辅导员重新审核。
+                  </p>
+                </div>
+              ) : currentUser.role === 'assistant' && activeMaterial.studentId === currentUser.studentId ? (
                 <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-2xl space-y-2">
                   <div className="flex items-center space-x-2 text-amber-800 dark:text-amber-300 font-bold text-xs">
                     <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />

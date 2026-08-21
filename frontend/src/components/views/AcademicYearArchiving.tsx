@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AcademicYearConfig } from '../../types';
+import { apiService } from '../../services/api';
 import { Calendar, Plus, Lock, LockOpen, CheckCircle2, ShieldCheck, Archive } from 'lucide-react';
 
 interface AcademicYearArchivingProps {
@@ -21,18 +22,35 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
   const [newYearName, setNewYearName] = useState('2027-2028');
   const [newDeadline, setNewDeadline] = useState('2028-09-30');
 
-  const handleToggleLockYear = (yearStr: string) => {
+  const handleToggleLockYear = async (yearStr: string) => {
     if (!isAdmin) return;
-    const updated = academicYears.map(y => {
-      if (y.year === yearStr) {
-        return { ...y, isLocked: !y.isLocked };
-      }
-      return y;
-    });
-    onUpdateAcademicYears(updated);
+    const target = academicYears.find(y => y.year === yearStr);
+    if (!target || target.id === undefined) return;
+    try {
+      await apiService.toggleYearLock(target.id, !target.isLocked);
+      onUpdateAcademicYears(academicYears.map(y =>
+        y.year === yearStr ? { ...y, isLocked: !y.isLocked } : y
+      ));
+    } catch (err: any) {
+      alert(err?.message || '锁定状态更新失败');
+    }
   };
 
-  const handleAddAcademicYear = (e: React.FormEvent) => {
+  const handleActivateYear = async (item: AcademicYearConfig) => {
+    if (!isAdmin || item.id === undefined) {
+      onSelectActiveYear(item.year);
+      return;
+    }
+    try {
+      await apiService.activateYear(item.id);
+      onUpdateAcademicYears(academicYears.map(y => ({ ...y, isCurrent: y.year === item.year })));
+      onSelectActiveYear(item.year);
+    } catch (err: any) {
+      alert(err?.message || '设置主学年失败');
+    }
+  };
+
+  const handleAddAcademicYear = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newYearName) return;
 
@@ -41,19 +59,23 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
       return;
     }
 
-    const updated = [
-      ...academicYears,
-      {
-        year: newYearName,
-        isCurrent: false,
-        isLocked: false,
-        deadline: newDeadline
-      }
-    ];
-
-    onUpdateAcademicYears(updated);
-    setShowAddModal(false);
-    setNewYearName('');
+    try {
+      const { year } = await apiService.createYear(newYearName, newDeadline);
+      onUpdateAcademicYears([
+        ...academicYears,
+        {
+          id: Number(year.id),
+          year: year.name || newYearName,
+          isCurrent: false,
+          isLocked: false,
+          deadline: newDeadline || undefined
+        }
+      ]);
+      setShowAddModal(false);
+      setNewYearName('');
+    } catch (err: any) {
+      alert(err?.message || '新增学年失败');
+    }
   };
 
   return (
@@ -131,7 +153,7 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
               <div className="flex flex-col gap-2 border-t border-current/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
                 {!isActive ? (
                   <button
-                    onClick={() => onSelectActiveYear(item.year)}
+                    onClick={() => handleActivateYear(item)}
                     className={`px-3 py-1.5 text-xs font-semibold rounded-xl border transition-colors ${
                       isActive
                         ? 'bg-white/10 text-white border-white/20'

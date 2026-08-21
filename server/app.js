@@ -173,12 +173,55 @@ app.use((err, req, res, _next) => {
 });
 
 // ==================== 启动服务器 ====================
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log('\n综测管理平台服务已启动');
   console.log('端口: ' + PORT + '  环境: ' + (process.env.NODE_ENV || 'development'));
   if (process.env.NODE_ENV !== 'production') {
     console.log('默认管理员: admin / admin（请在生产环境中修改）');
   }
+});
+
+// ==================== 优雅关闭 ====================
+// PM2 重启 / 系统停机时会收到 SIGTERM/SIGINT。先停止接收新请求，等待在途请求
+// 完成后关闭数据库连接池再退出，避免上传/审核等写操作被硬中断。
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n收到 ${signal}，正在优雅关闭…`);
+
+  server.close(() => {
+    console.log('HTTP 服务已停止接收新请求');
+  });
+
+  // 给在途请求最多 10 秒收尾；超时后强制退出
+  const forceExit = setTimeout(() => {
+    console.error('在途请求超时未完成，强制退出');
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+
+  try {
+    const pool = require('./config/database');
+    await pool.end();
+    clearTimeout(forceExit);
+    console.log('数据库连接池已释放，进程退出');
+    process.exit(0);
+  } catch (err) {
+    console.error('关闭数据库连接池失败:', err.message);
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => { gracefulShutdown('SIGTERM').catch(() => process.exit(1)); });
+process.on('SIGINT', () => { gracefulShutdown('SIGINT').catch(() => process.exit(1)); });
+
+// 兜底：未捕获的异步异常不静默吞掉，打印后由进程管理器（PM2）重启。
+process.on('unhandledRejection', (reason) => {
+  console.error('未处理的 Promise 拒绝:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('未捕获的异常:', err);
 });
 
 module.exports = app;

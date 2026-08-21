@@ -218,15 +218,45 @@ exports.getYears = async (req, res) => {
 
 exports.createYear = async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, deadline } = req.body;
     if (!name) return res.status(400).json({ error: '请输入学年名称' });
-    const [result] = await pool.query('INSERT INTO academic_years (name) VALUES (?)', [name]);
-    await auditLog(req, 'year.create', 'academic_year', result.insertId, { name });
-    res.status(201).json({ year: { id: result.insertId, name } });
+    if (deadline && !/^\d{4}-\d{2}-\d{2}$/.test(String(deadline))) {
+      return res.status(400).json({ error: '截止日期格式应为 YYYY-MM-DD' });
+    }
+    const [result] = await pool.query('INSERT INTO academic_years (name, deadline) VALUES (?, ?)', [name, deadline || null]);
+    await auditLog(req, 'year.create', 'academic_year', result.insertId, { name, deadline: deadline || null });
+    res.status(201).json({ year: { id: result.insertId, name, is_current: 0, is_locked: 0, deadline: deadline || null } });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: '该学年已存在' });
     }
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// 锁定/解锁学年：锁定后该学年的提交、删除、审核与成绩导入都会被后端拒绝
+exports.toggleYearLock = async (req, res) => {
+  try {
+    const locked = req.body.locked ? 1 : 0;
+    const [result] = await pool.query('UPDATE academic_years SET is_locked = ? WHERE id = ?', [locked, req.params.id]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: '学年不存在' });
+    await auditLog(req, locked ? 'year.lock' : 'year.unlock', 'academic_year', req.params.id, { locked: Boolean(locked) });
+    res.json({ message: locked ? '该学年已归档锁死' : '已解除归档锁定', id: req.params.id, is_locked: Boolean(locked) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// 切换主学年：置该学年为 is_current 唯一
+exports.activateYear = async (req, res) => {
+  try {
+    const [yearRows] = await pool.query('SELECT id, name FROM academic_years WHERE id = ?', [req.params.id]);
+    if (yearRows.length === 0) return res.status(404).json({ error: '学年不存在' });
+    await pool.query('UPDATE academic_years SET is_current = FALSE');
+    await pool.query('UPDATE academic_years SET is_current = TRUE WHERE id = ?', [req.params.id]);
+    await auditLog(req, 'year.activate', 'academic_year', req.params.id, { name: yearRows[0].name });
+    res.json({ message: '已将 ' + yearRows[0].name + ' 设为主学年' });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };

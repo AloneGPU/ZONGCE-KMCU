@@ -1,6 +1,39 @@
 const pool = require('../config/database');
 const { normalizeClassName, normalizeGrade, standardizeClassNameForDisplay } = require('../utils/className');
 
+// 模块基础分从 scoring_modules.base_score 读取(可配置),进程内缓存。
+// 旧库未跑迁移时按原有硬编码规则兜底: 德育(1)/能力(4)/美育(5)/劳动(6) = 60。
+const BASE_SCORE_FALLBACK = new Map([
+  [1, 60], [4, 60], [5, 60], [6, 60],
+]);
+let baseScoreCache = null;
+let baseScoreReady = null;
+
+async function ensureBaseScores() {
+  if (baseScoreReady) return baseScoreReady;
+  baseScoreReady = (async () => {
+    try {
+      const [rows] = await pool.query('SELECT id, base_score FROM scoring_modules');
+      baseScoreCache = new Map(rows.map(r => [Number(r.id), Number(r.base_score) || 0]));
+    } catch (err) {
+      // 旧库没有 base_score 列时沿用历史规则，避免迁移前启动即崩溃
+      baseScoreCache = new Map(BASE_SCORE_FALLBACK);
+    }
+  })();
+  return baseScoreReady;
+}
+
+// 同步读取，调用方需先 await ensureBaseScores()
+function moduleBaseScore(moduleId) {
+  if (baseScoreCache) return baseScoreCache.get(Number(moduleId)) ?? 0;
+  return BASE_SCORE_FALLBACK.get(Number(moduleId)) ?? 0;
+}
+
+async function invalidateBaseScores() {
+  baseScoreReady = null;
+  baseScoreCache = null;
+}
+
 const Score = {
   async getImported(studentId, yearId, moduleId) {
     const [rows] = await pool.query(
@@ -48,17 +81,12 @@ const Score = {
   // 劳动 = (60 + 加分) × 0.1
   async calcTotalScore(studentId, yearId) {
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
+    await ensureBaseScores();
     let total = 0;
-    // 有60分基础分的模块: 德育(1), 能力(4), 美育(5), 劳动(6)
-    const base60Modules = [1, 4, 5, 6];
 
     for (const mod of modRows) {
       let modScore = await this.calcModuleScore(studentId, yearId, mod.id);
-      // 德育/能力/美育/劳动 有60分基础
-      if (base60Modules.includes(mod.id)) {
-        modScore = 60 + modScore;
-      }
-      // 体育已有实际分数不需要基础分; 智育为教务加权平均
+      modScore = modScore + moduleBaseScore(mod.id);
       total += modScore * parseFloat(mod.weight) / 100;
     }
 
@@ -81,15 +109,38 @@ const Score = {
       if (grade) studentRows = studentRows.filter(student => normalizeGrade(student.grade) === normalizeGrade(grade));
     }
 
+    if (studentRows.length === 0) return [];
+
+    // 一次性按 (学生, 模块) 聚合所有得分，避免对每个学生逐个模块查询（N+1）
+    const [scoreRows] = await pool.query(
+      `SELECT student_id, module_id, SUM(score) AS total FROM (
+         SELECT student_id, module_id, score FROM submissions
+         WHERE academic_year_id = ? AND status = 'approved'
+         UNION ALL
+         SELECT student_id, module_id, score FROM imported_scores
+         WHERE academic_year_id = ?
+       ) combined
+       GROUP BY student_id, module_id`,
+      [yearId, yearId]
+    );
+    const scoreMap = new Map();
+    for (const row of scoreRows) {
+      scoreMap.set(`${row.student_id}:${row.module_id}`, parseFloat(row.total) || 0);
+    }
+
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
+    await ensureBaseScores();
     const rankings = [];
 
     for (const student of studentRows) {
-      const totalScore = await this.calcTotalScore(student.id, yearId);
       const moduleScores = [];
+      let total = 0;
       for (const mod of modRows) {
-        const ms = await this.calcModuleScore(student.id, yearId, mod.id);
-        moduleScores.push({ moduleId: mod.id, moduleName: mod.name, score: ms });
+        const score = scoreMap.get(`${student.id}:${mod.id}`) || 0;
+        const baseScore = moduleBaseScore(mod.id);
+        // 明细里同时给出原始加分与最终折算分，前端不再自行推算基础分
+        moduleScores.push({ moduleId: mod.id, moduleName: mod.name, score, baseScore, finalScore: score + baseScore });
+        total += (score + baseScore) * parseFloat(mod.weight) / 100;
       }
       rankings.push({
         studentId: student.id,
@@ -98,7 +149,7 @@ const Score = {
         className: standardizeClassNameForDisplay(student.class_name),
         grade: student.grade,
         major: student.major,
-        totalScore,
+        totalScore: Math.round(total * 100) / 100,
         modules: moduleScores,
       });
     }
@@ -125,3 +176,6 @@ const Score = {
 };
 
 module.exports = Score;
+Score.moduleBaseScore = moduleBaseScore;
+Score.ensureBaseScores = ensureBaseScores;
+Score.invalidateBaseScores = invalidateBaseScores;

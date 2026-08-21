@@ -128,6 +128,7 @@ export interface StudentScoreSummary {
 }
 
 export interface AcademicYearConfig {
+  id?: number; // 数据库主键（后端 /years 返回）
   year: string; // e.g. "2025-2026", "2026-2027"
   isCurrent: boolean;
   isLocked: boolean; // Locked for submissions/edits

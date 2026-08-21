@@ -19,6 +19,9 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
 }) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  // 报告日期与印章年份取自当前学年（如 "2025-2026 学年" → 2025），失败时退回当前自然年
+  const yearMatch = String(activeAcademicYear || '').match(/(20\d{2})/);
+  const reportYear = yearMatch ? yearMatch[1] : String(new Date().getFullYear());
   const studentApprovedMaterials = materials.filter(
     m => m.studentId === currentUser.studentId && m.academicYear === activeAcademicYear && m.status === 'approved'
   );
@@ -237,13 +240,13 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
           <div className="space-y-8">
             <div>班级测评小组审核人签字：</div>
             <div className="border-b border-slate-400 w-3/4"></div>
-            <div>日期： 2026 年 ___ 月 ___ 日</div>
+            <div>日期： {reportYear} 年 ___ 月 ___ 日</div>
           </div>
 
           <div className="space-y-8">
             <div>年级辅导员复核签字：</div>
             <div className="border-b border-slate-400 w-3/4"></div>
-            <div>日期： 2026 年 ___ 月 ___ 日</div>
+            <div>日期： {reportYear} 年 ___ 月 ___ 日</div>
           </div>
 
           <div className="relative space-y-8 text-center flex flex-col items-center justify-between">
@@ -252,9 +255,9 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
             <div className="w-24 h-24 rounded-full border-2 border-rose-600/80 text-rose-600 flex flex-col items-center justify-center p-1 transform -rotate-12 opacity-80 pointer-events-none my-2">
               <span className="text-[9px] font-bold">数据科学与工程学院</span>
               <span className="text-[8px]">★ 综测审核专用章 ★</span>
-              <span className="text-[8px] font-mono">2026.09</span>
+              <span className="text-[8px] font-mono">{reportYear}.09</span>
             </div>
-            <div>日期： 2026 年 ___ 月 ___ 日</div>
+            <div>日期： {reportYear} 年 ___ 月 ___ 日</div>
           </div>
         </div>
       </div>

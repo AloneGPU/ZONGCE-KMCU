@@ -27,8 +27,8 @@ __pycache__/
 *.pyc
 
 # React 构建产物（源码在 frontend/src/）
-public/index.html
 public/assets/*
+public/index.html
 frontend/dist/
 
 # 归档文件（调试数据/临时导出/备份）
@@ -50,3 +50,9 @@ profile_explore*.json
 *.xlsx
 e2e_test.js
 nul
+
+# 本地工具/代理运行目录（不要公开提交）
+.codex_tmp/
+.mimosa/
+.agents/
+.claude/

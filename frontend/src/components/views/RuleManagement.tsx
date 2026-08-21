@@ -52,26 +52,18 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
     return item.name.toLowerCase().includes(q) || item.description.toLowerCase().includes(q);
   });
 
-  const handleWeightChange = (category: string, newWeight: number) => {
+  const handleWeightChange = async (category: string, newWeight: number) => {
     if (rulesLocked && !isAdmin) return;
-    const updated = ruleConfigs.map(c => {
-      if (c.category === category) {
-        return { ...c, baseWeight: newWeight };
-      }
-      return c;
-    });
-    onUpdateRuleConfigs(updated);
-  };
-
-  const handleMaxCapChange = (category: string, newCap: number) => {
-    if (rulesLocked && !isAdmin) return;
-    const updated = ruleConfigs.map(c => {
-      if (c.category === category) {
-        return { ...c, maxBonusCap: newCap };
-      }
-      return c;
-    });
-    onUpdateRuleConfigs(updated);
+    const cfg = ruleConfigs.find(c => c.category === category);
+    if (!cfg) return;
+    const weightPercent = Math.round(newWeight * 100);
+    if (weightPercent < 0 || weightPercent > 100) return;
+    try {
+      await apiService.updateScoringModule(cfg.moduleId, weightPercent);
+      onUpdateRuleConfigs(ruleConfigs);
+    } catch (e: any) {
+      alert('权重更新失败: ' + (e?.message || '请重试'));
+    }
   };
 
   const handleAddItemSubmit = async (e: React.FormEvent) => {
@@ -123,6 +115,8 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
     } catch(e: any) { alert('删除失败: ' + (e.message || '请重试')); }
   };
 
+  const maxItemScore = activeCategoryConfig.items.reduce((max, item) => Math.max(max, Number(item.maxScore) || 0), 0);
+
   return (
     <div className="space-y-6">
       {/* Top Banner & Locking Control */}
@@ -142,12 +136,12 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
               ) : (
                 <span className="inline-flex max-w-full items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-400">
                   <LockOpen className="w-3.5 h-3.5" />
-                  <span className="min-w-0">辅导员/管理员可增删改查</span>
+                  <span className="min-w-0">规则库当前未锁定（管理员可维护）</span>
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
-              辅导员可维护和管理全院/各年级可选的加分项细则库，学生在申报端可直接下拉选择对应的加分项目进行佐证材料上传。
+              管理员可维护全院/各年级可选的加分项细则库（配置权重、增删改查并锁定规则）；辅导员可查看所辖班级适用的加分规则；学生在申报端可直接下拉选择对应的加分项目进行佐证材料上传。
             </p>
           </div>
 
@@ -221,8 +215,8 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
                       <span className="font-semibold">{(cfg.baseWeight * 100).toFixed(0)}%</span>
                     </div>
                     <div>
-                      <span className="text-[10px] opacity-75 block">本项封顶最高加分</span>
-                      <span className="font-semibold">+{cfg.maxBonusCap} 分</span>
+                      <span className="text-[10px] opacity-75 block">本类单项最高加分</span>
+                      <span className="font-semibold">+{cfg.items.reduce((max, it) => Math.max(max, Number(it.maxScore) || 0), 0)} 分</span>
                     </div>
                   </div>
                 </div>
@@ -239,7 +233,7 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
                 <span>{activeCategoryConfig.categoryName} 可选加分细则清单</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                得分逻辑：学生可在前端选择以下加分项并提交对应佐证，审核通过后计入对应折算分（最高 +{activeCategoryConfig.maxBonusCap} 分）。
+                得分逻辑：学生可在前端选择以下加分项并提交对应佐证，审核通过后按各细则分值计入（本类单项最高 +{maxItemScore} 分）。
               </p>
             </div>
 
@@ -272,12 +266,12 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
             </div>
           </div>
 
-          {/* Quick Edit Weight & Cap for Admin/Counselor */}
+          {/* Quick Edit Weight for Admin/Counselor */}
           {isAdmin && !rulesLocked && (
             <div className="p-3.5 bg-slate-50/70 dark:bg-slate-800/50 rounded-xl grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs border border-slate-200/60 dark:border-slate-800">
               <div>
                 <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                  板块综合占比权重 (0 - 1.0)
+                  板块综合占比权重 (0 - 1.0，六大板块合计须为 1.0)
                 </label>
                 <input
                   type="number"
@@ -289,18 +283,10 @@ export const RuleManagement: React.FC<RuleManagementProps> = ({
                   className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
                 />
               </div>
-              <div>
-                <label className="block text-slate-700 dark:text-slate-300 font-semibold mb-1">
-                  最高加分封顶上限 (分)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={activeCategoryConfig.maxBonusCap}
-                  onChange={e => handleMaxCapChange(activeCategoryConfig.category, parseInt(e.target.value) || 0)}
-                  className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
-                />
+              <div className="flex items-end">
+                <div className="w-full px-3 py-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-500 dark:text-slate-400">
+                  本类单项最高可加 <span className="font-bold text-slate-800 dark:text-slate-200">+{maxItemScore} 分</span>
+                </div>
               </div>
             </div>
           )}

@@ -122,20 +122,6 @@ const Teacher = {
   async delete(id) {
     await pool.query('DELETE FROM teachers WHERE id = ?', [id]);
   },
-
-  async bulkCreate(teachers) {
-    const results = [];
-    for (const t of teachers) {
-      const [result] = await pool.query(
-        `INSERT INTO teachers (employee_id, name, college_id, grade)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE name = VALUES(name), college_id = VALUES(college_id), grade = VALUES(grade)`,
-        [t.employeeId, t.name, t.collegeId, t.grade]
-      );
-      results.push({ id: result.insertId, ...t });
-    }
-    return results;
-  },
 };
 
 module.exports = Teacher;

@@ -37,6 +37,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
   const [selectedProject, setSelectedProject] = useState<string>('comprehensive');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [checkingProofs, setCheckingProofs] = useState(false);
+  const [cleaningProofs, setCleaningProofs] = useState(false);
   const [proofCheck, setProofCheck] = useState<any>(null);
   const [managedClasses, setManagedClasses] = useState<string[]>([]);
   const [managedGrade, setManagedGrade] = useState('');
@@ -197,6 +198,22 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
     }
   };
 
+  const handleCleanupOrphans = async () => {
+    const orphans: string[] = proofCheck?.orphanFiles || [];
+    if (orphans.length === 0) return;
+    if (!window.confirm(`将物理删除 ${orphans.length} 张孤立图片（数据库已无对应材料记录）。删除后不可恢复，确定继续吗？`)) return;
+    setCleaningProofs(true);
+    try {
+      const result = await apiService.cleanupProofOrphans(orphans);
+      alert(`清理完成：成功删除 ${result.deletedCount} 张，失败/跳过 ${result.failedCount} 张`);
+      setProofCheck(await apiService.checkProofFiles(activeAcademicYear));
+    } catch (error: any) {
+      alert(error.message || '清理失败');
+    } finally {
+      setCleaningProofs(false);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Top Banner */}
@@ -262,6 +279,19 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
                 {proofCheck.orphanFiles?.slice(0, 3).map((item: string) => (
                   <div key={`o-${item}`} className="break-all">孤立：{item}</div>
                 ))}
+                {(proofCheck.missingCount > 3 || proofCheck.orphanFileCount > 3) && (
+                  <div className="text-[10px] opacity-70">仅显示前 3 条，完整清单请以导出证明图片包核对。</div>
+                )}
+                {proofCheck.orphanFileCount > 0 && (
+                  <button
+                    onClick={handleCleanupOrphans}
+                    disabled={cleaningProofs}
+                    className="mt-2 flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300 cursor-pointer"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>{cleaningProofs ? '清理中...' : `删除 ${proofCheck.orphanFileCount} 张孤立图片`}</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

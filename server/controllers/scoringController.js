@@ -1,6 +1,7 @@
 const ScoringRule = require('../models/scoringRule');
 const pool = require('../config/database');
 const auditLog = require('../utils/audit');
+const Score = require('../models/score');
 
 function parseFiniteNumber(value, label, min, max) {
   const number = Number(value);
@@ -86,6 +87,7 @@ exports.updateModule = async (req, res) => {
     }
     const updated = await ScoringRule.updateModule(req.params.id, data);
     if (!updated) return res.status(400).json({ error: '没有可更新的字段' });
+    await Score.invalidateBaseScores();
     await auditLog(req, 'rules.module.update', 'scoring_module', req.params.id, req.body);
     res.json({ message: '已更新' });
   } catch (err) {

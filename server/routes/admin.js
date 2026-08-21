@@ -20,6 +20,8 @@ router.use('/dashboard', authenticate, requireRole('admin'));
 router.use('/years', authenticate, requireRole('admin'));
 router.get('/years', userCtrl.getYears);
 router.post('/years', userCtrl.createYear);
+router.put('/years/:id/lock', userCtrl.toggleYearLock);
+router.put('/years/:id/activate', userCtrl.activateYear);
 router.delete('/years/:id', userCtrl.deleteYear);
 
 // 学院 → 所有人可读
@@ -97,6 +99,9 @@ router.get('/export/module', authenticate, requireRole('admin'), exportCtrl.expo
 router.get('/export/college', authenticate, requireRole('admin'), exportCtrl.exportClassCSV);
 router.get('/export/proofs', authenticate, requireRole('admin'), exportCtrl.exportProofImagesZip);
 router.get('/proofs/check', authenticate, requireRole('admin'), exportCtrl.checkProofFileConsistency);
+router.post('/proofs/cleanup', authenticate, requireRole('admin'), exportCtrl.cleanupOrphanProofFiles);
+router.delete('/submissions/:id', authenticate, requireRole('admin'), submissionCtrl.adminDeleteSubmission);
+router.get('/review', authenticate, requireRole('admin'), submissionCtrl.getReviewList);
 
 // 综合测评登分表导出 → 管理员专属；辅导员走 /api/counselor/export/score-table
 router.get('/export/score-table', authenticate, requireRole('admin'), scoreTableCtrl.exportScoreTable);

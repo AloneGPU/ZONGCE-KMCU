@@ -101,6 +101,13 @@ async function migrationSatisfied(conn, file) {
     );
     return rows[0].total > 0;
   }
+  if (file.startsWith('022_')) {
+    return await columnExists(conn, 'academic_years', 'is_locked')
+      && await columnExists(conn, 'academic_years', 'deadline');
+  }
+  if (file.startsWith('023_')) {
+    return await columnExists(conn, 'scoring_modules', 'base_score');
+  }
   return false;
 }
 

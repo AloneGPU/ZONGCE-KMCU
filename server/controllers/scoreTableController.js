@@ -10,6 +10,7 @@ const { canonicalizeClassNames, normalizeClassName, normalizeGrade, resolveManag
 // 单个学生级计算（与 score.js calcTotalScore 公式一致）
 async function calcStudentScoreTable(studentId, yearId) {
   const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
+  await Score.ensureBaseScores();
 
   const [subScores] = await pool.query(
     `SELECT module_id, SUM(score) as total FROM submissions WHERE student_id=? AND academic_year_id=? AND status='approved' GROUP BY module_id`,
@@ -25,11 +26,10 @@ async function calcStudentScoreTable(studentId, yearId) {
   for (const s of subScores) moduleTotals[s.module_id] = (moduleTotals[s.module_id] || 0) + Number(s.total);
   for (const s of impScores) moduleTotals[s.module_id] = (moduleTotals[s.module_id] || 0) + Number(s.total);
 
-  const base60Modules = [1, 4, 5, 6];
   const modScores = {};
   for (const m of modRows) {
     let raw = moduleTotals[m.id] || 0;
-    if (base60Modules.includes(m.id)) raw = 60 + raw;
+    raw = Score.moduleBaseScore(m.id) + raw;
     modScores[m.id] = { id: m.id, name: m.name, weight: Number(m.weight), raw: raw };
   }
 

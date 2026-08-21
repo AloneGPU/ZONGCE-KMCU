@@ -161,6 +161,7 @@ reset-password POST → /api/auth/reset-password
 | 评分规则查看 | ✅ | ✅ | ✅ | ✅ |
 | 材料审核 | - | ✅（终审） | ✅（初审） | - |
 | 提交材料 | - | - | ✅ | ✅ |
+| 删除材料 | ✅ 任意材料 | ✅ 仅负责班级 | - | 仅本人待审/驳回 |
 | 成绩查看 | ✅ | ✅ | ✅ | ✅ |
 | 成绩导出 | ✅ 全院/年级/班级/分板块 | ✅ 仅负责班级 | ✅（本班） | - |
 | 证明图片 ZIP 导出 | ✅ | ✅（负责班级） | ✅（本班） | - |
@@ -316,6 +317,16 @@ for each module:
 - 弹窗内显示百分比进度条（琥珀→翠绿渐变）
 - 选文件后显示文件大小/剩余容量/进度条
 
+### 6.4 材料删除与清理
+
+材料删除统一采取「删除数据库记录 + 同步物理删除证明图片」策略，所有删除动作写入审计日志：
+
+- **学生**：只能删除本人待审核 / 已驳回的材料（`pending` / `rejected`），接口受学年锁定保护
+- **辅导员**：可删除负责班级内任意状态的材料，后端按班级归属校验拒绝跨班操作
+- **管理员**：可删除全院任意材料，用于清理违规或不留记录的内容
+
+删除已通过（`approved`）的材料会影响对应学生综测成绩，删除后成绩重新计算；归档锁定的学年一律拒绝删除，保证历史成绩可溯源。因历史原因或删除失败残留的孤立图片，由管理员在导出中心「检查图片一致性」后一键清理（见 7.3）。
+
 ---
 
 ## 七、成绩导出
@@ -340,6 +351,9 @@ for each module:
 | `GET /counselor/export/proofs?yearId=xxx&className=xxx&status=approved` | counselor（仅负责班级） |
 | `GET /assistant/export/proofs?yearId=xxx&status=approved` | assistant（仅本班） |
 | `GET /admin/proofs/check?yearId=xxx` | admin，检查数据库图片路径与实际文件是否一致 |
+| `POST /admin/proofs/cleanup` | admin，物理清理孤立图片（仅在数据库无引用、并限定在上传根目录内） |
+| `DELETE /admin/submissions/:id` | admin，强制删除任意材料（锁定学年除外，含物理文件） |
+| `DELETE /counselor/submissions/:id` | counselor，仅删除本人负责班级内的材料 |
 
 ### 7.3 图片一致性检查
 
@@ -347,10 +361,10 @@ for each module:
 
 - 数据库中有 `proof_path` 但实际文件缺失
 - `proof_path` 指向上传根目录之外的非法路径
-- 上传目录中存在图片但数据库没有对应记录
+- 上传目录中存在图片但数据库没有对应记录（孤立图片）
 - 当前学年数据库文件数、目录图片数、正常匹配数
 
-建议在批量导出证明图片前先执行该检查，确认无缺失后再下载 ZIP。
+检查出孤立图片时，管理员可点击“删除孤立图片”将其物理删除（仅限数据库已无引用的文件，受上传根目录白名单约束，删除动作写入审计日志）。建议在批量导出证明图片前先执行该检查，确认无缺失后再下载 ZIP。
 
 ### 7.4 Excel 导入预检查
 
@@ -469,7 +483,44 @@ pm2 restart zongce --update-env
 
 每次发布前保留上一版代码目录、`public/` 构建产物、数据库备份和上传目录备份。发生问题时恢复同一版本的代码与数据库备份后重启 PM2；不要使用来源不明的静态页面覆盖当前版本。
 
-### 10.5 环境变量说明
+### 10.5 生产运维
+
+长时间运行后数据库中的审计日志会持续增长、上传图片会累积，建议把下面几条运维命令纳入 cron 定期执行：
+
+**1. 备份(数据库 + 上传目录)**
+
+```bash
+npm run db:backup
+# 自定义备份目录:
+BACKUP_ROOT=/data/zongce/backups npm run db:backup
+```
+
+默认备份到 `./backups`(建议放到数据盘并定期异地拷贝), 保留最近 14 天。建议 crontab:
+
+```cron
+0 2 * * * cd /www/wwwroot/zongce && BACKUP_ROOT=/data/zongce/backups npm run db:backup >> /var/log/zongce-backup.log 2>&1
+```
+
+**审计日志清理**(默认删除 180 天前记录, 可带 `-- --days N`):
+
+```bash
+npm run db:prune-audit
+npm run db:prune-audit -- --days=365
+```
+
+**上线冒烟测试**(检查首页、健康接口、上传目录隔离):
+
+```bash
+npm run smoke
+```
+
+**优雅停机说明**: 服务端已监听 `SIGTERM/SIGINT`, `pm2 restart` 时会先停止接收新请求、等待在途写操作完成后释放数据库连接池再退出(最多 10 秒)。上传或审核进行中触发重启不会被截断。
+
+**Nginx 反向代理**: 参考 `docs/nginx-example.conf`。务必配置 `client_max_body_size`(≥ `UPLOAD_MAX_SIZE`, 默认 11m)与 `X-Real-IP/X-Forwarded-For` 透传(`TRUST_PROXY=1` 时按真实 IP 限流)。
+
+**进程守护**: PM2 重启策略 `pm2 start server/app.js --name zongce --update-env --max-memory-restart 500M`；如需自动拉起可配合 `pm2 startup`。
+
+### 10.6 环境变量说明
 
 | 变量 | 必须 | 默认值 | 说明 |
 |------|:--:|--------|------|
@@ -490,6 +541,8 @@ pm2 restart zongce --update-env
 | `SMTP_USER` | 邮箱验证码✅ | - | 发件邮箱账号 |
 | `SMTP_PASS` | 邮箱验证码✅ | - | 发件邮箱授权码或密码 |
 | `SMTP_FROM` | - | SMTP_USER | 发件人显示名称 |
+| `DB_CONNECT_TIMEOUT` | - | 10000 | 建连超时(毫秒) |
+| `DB_IDLE_TIMEOUT` | - | 60000 | 空闲连接回收时间(毫秒) |
 
 开源仓库只提交 `.env.example` 与 `frontend/.env.example`。真实 `.env`、数据库密码、JWT 密钥、SMTP 授权码和上传图片目录不要提交到 GitHub。前端示例环境文件只保留 `VITE_BACKEND_API_URL`，数据库、JWT、SMTP 等配置统一放在项目根目录 `.env` 中由后端读取。
 
