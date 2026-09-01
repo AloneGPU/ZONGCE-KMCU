@@ -18,6 +18,24 @@ function appendImportNotesSheet(XLSX: XlsxModule, workbook: any, notes: string[]
   XLSX.utils.book_append_sheet(workbook, noteSheet, '填写说明');
 }
 
+export function calculatePhysicalBaseScore(termOneStatus: string, termTwoStatus: string, fitnessLevel: string) {
+  const normalize = (value: string) => String(value || '').trim().replace(/\s+/g, '');
+  const isPass = (value: string) => {
+    const text = normalize(value);
+    return ['及格', '合格', '通过', '已通过', '达标'].includes(text);
+  };
+  const firstPass = isPass(termOneStatus);
+  const secondPass = isPass(termTwoStatus);
+  const courseScore = firstPass && secondPass ? 30 : firstPass || secondPass ? 20 : 10;
+  const fitnessText = normalize(fitnessLevel);
+  const fitnessScore = fitnessText.includes('优秀') ? 30
+    : fitnessText.includes('良好') ? 20
+    : fitnessText.includes('不达标') || fitnessText.includes('未达标') ? 0
+    : fitnessText.includes('达标') || fitnessText.includes('及格') || fitnessText.includes('通过') ? 15
+    : Number.NaN;
+  return Number.isFinite(fitnessScore) ? courseScore + fitnessScore : Number.NaN;
+}
+
 /**
  * Export Comprehensive Score Summaries to Excel file
  */
@@ -307,34 +325,54 @@ export async function exportMaterialAuditRecordsExcel(materials: any[], fileName
 }
 
 /**
- * Generate template for base scores import (德育/智育/体育)
+ * Generate template for base scores import (智育/体育)
  */
-export async function downloadScoreImportTemplate(scoreType: 'moral' | 'intellectual' | 'physical') {
+export async function downloadScoreImportTemplate(scoreType: 'intellectual' | 'physical') {
   const XLSX = await loadXlsx();
-  const labelMap = {
-    moral: '德育基础分表',
-    intellectual: '智育表',
-    physical: '体质自测成绩表'
-  };
-  const scoreColumn = {
-    moral: '德育基础分(0-100)',
-    intellectual: '智育百分制',
-    physical: '体育/体测成绩(0-100)'
-  }[scoreType];
-
-  const worksheet = XLSX.utils.aoa_to_sheet([
-    ['学号', '姓名', '年级', '专业班级', scoreColumn],
-    ['示例：24170025', '示例：张三', '示例：2024级', '示例：物联网工程1班', '示例：86'],
-  ]);
-  worksheet['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 20 }, { wch: 20 }];
+  const labelMap = { intellectual: '智育表', physical: '体育基础分表' };
+  const worksheet = scoreType === 'physical'
+    ? XLSX.utils.aoa_to_sheet([
+      ['学号', '姓名', '年级', '专业班级', '第一学期体育成绩', '第二学期体育成绩', '体测成绩', '体育基础分'],
+      ['示例：24170025', '示例：张三', '示例：2024级', '示例：物联网工程1班', '示例：及格', '示例：及格', '示例：优秀', '示例：60'],
+    ])
+    : XLSX.utils.aoa_to_sheet([
+      ['学号', '姓名', '年级', '专业班级', '智育百分制'],
+      ['示例：24170025', '示例：张三', '示例：2024级', '示例：物联网工程1班', '示例：86'],
+    ]);
+  worksheet['!cols'] = scoreType === 'physical'
+    ? [{ wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 12 }]
+    : [{ wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 20 }, { wch: 20 }];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, labelMap[scoreType]);
-  appendImportNotesSheet(XLSX, workbook, [
+  appendImportNotesSheet(XLSX, workbook, scoreType === 'physical' ? [
+    '体育基础分 = 学期体育成绩分 + 体测成绩分，最高 60 分。',
+    '两个学期都及格计 30 分；一个学期不及格或未选课计 20 分；两个学期都不及格计 10 分。',
+    '体测优秀计 30 分，良好计 20 分，达标/及格/通过计 15 分，不达标计 0 分。',
+    '可以直接填写“体育基础分”；若留空，系统会按三个状态列自动换算。'
+  ] : [
     '学号必填，成绩列必须为数字。',
     '成绩列可以保留模板表头，也可以命名为 成绩、分数、基础成绩、板块名称或具体导入项目名称。',
     '重复导入同一学生、同一学年、同一项目会覆盖原成绩，不会重复累计。'
   ]);
   XLSX.writeFile(workbook, `${labelMap[scoreType]}模板.xlsx`);
+}
+
+export async function downloadMoralDeductionImportTemplate(items: Array<{ id: string; name: string; maxScore: number }>) {
+  const XLSX = await loadXlsx();
+  const first = items[0];
+  const worksheet = XLSX.utils.aoa_to_sheet([
+    ['学号', '姓名', '扣分项ID', '扣分项名称', '次数', '扣分'],
+    ['示例：24170025', '示例：张三', first ? `示例：${first.id}` : '示例：38', first ? `示例：${first.name}` : '示例：宿舍卫生不合格/晚归/违章电器', '示例：1', first ? `示例：${Math.abs(first.maxScore)}` : '示例：5'],
+  ]);
+  worksheet['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 34 }, { wch: 8 }, { wch: 10 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, '德育扣分导入模板');
+  appendImportNotesSheet(XLSX, workbook, [
+    '扣分项ID 必填，请从页面右侧“可导入扣分项”复制。',
+    '次数和扣分二选一；填写次数时按规则分值自动相乘，填写扣分时可写正数或负数，系统都会按扣分处理。',
+    '同一学生同一学年同一扣分项重复导入会覆盖该项目原扣分，不会重复累计。'
+  ]);
+  XLSX.writeFile(workbook, '德育扣分导入模板.xlsx');
 }
 
 /**

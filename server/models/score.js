@@ -29,6 +29,11 @@ function moduleBaseScore(moduleId) {
   return BASE_SCORE_FALLBACK.get(Number(moduleId)) ?? 0;
 }
 
+function capImportedScore(moduleId, score) {
+  const value = Number(score) || 0;
+  return Number(moduleId) === 3 ? Math.min(value, 60) : value;
+}
+
 async function invalidateBaseScores() {
   baseScoreReady = null;
   baseScoreCache = null;
@@ -72,6 +77,21 @@ const Score = {
     return parseFloat(rows[0].total) || 0;
   },
 
+  async calcModuleBreakdown(studentId, yearId, moduleId) {
+    const [rows] = await pool.query(
+      `SELECT
+        COALESCE((SELECT SUM(score) FROM submissions
+         WHERE student_id = ? AND academic_year_id = ? AND module_id = ? AND status = 'approved'), 0) AS approvedScore,
+        COALESCE((SELECT SUM(score) FROM imported_scores
+         WHERE student_id = ? AND academic_year_id = ? AND module_id = ?), 0) AS importedScore`,
+      [studentId, yearId, moduleId, studentId, yearId, moduleId]
+    );
+    const approvedScore = parseFloat(rows[0].approvedScore) || 0;
+    const importedScore = parseFloat(rows[0].importedScore) || 0;
+    const cappedImportedScore = capImportedScore(moduleId, importedScore);
+    return { approvedScore, importedScore: cappedImportedScore, total: approvedScore + cappedImportedScore };
+  },
+
   // V2 六模块综测总分公式:
   // 德育 = (60 + 加分 - 扣分) × 0.2
   // 智育 = 学业成绩(教务加权平均) × 0.4
@@ -85,7 +105,8 @@ const Score = {
     let total = 0;
 
     for (const mod of modRows) {
-      let modScore = await this.calcModuleScore(studentId, yearId, mod.id);
+      const breakdown = await this.calcModuleBreakdown(studentId, yearId, mod.id);
+      let modScore = breakdown.total;
       modScore = modScore + moduleBaseScore(mod.id);
       total += modScore * parseFloat(mod.weight) / 100;
     }
@@ -113,11 +134,15 @@ const Score = {
 
     // 一次性按 (学生, 模块) 聚合所有得分，避免对每个学生逐个模块查询（N+1）
     const [scoreRows] = await pool.query(
-      `SELECT student_id, module_id, SUM(score) AS total FROM (
-         SELECT student_id, module_id, score FROM submissions
+      `SELECT student_id, module_id,
+              SUM(approved_score) AS approvedScore,
+              SUM(imported_score) AS importedScore,
+              SUM(approved_score + imported_score) AS total
+       FROM (
+         SELECT student_id, module_id, score AS approved_score, 0 AS imported_score FROM submissions
          WHERE academic_year_id = ? AND status = 'approved'
          UNION ALL
-         SELECT student_id, module_id, score FROM imported_scores
+         SELECT student_id, module_id, 0 AS approved_score, score AS imported_score FROM imported_scores
          WHERE academic_year_id = ?
        ) combined
        GROUP BY student_id, module_id`,
@@ -125,7 +150,11 @@ const Score = {
     );
     const scoreMap = new Map();
     for (const row of scoreRows) {
-      scoreMap.set(`${row.student_id}:${row.module_id}`, parseFloat(row.total) || 0);
+      scoreMap.set(`${row.student_id}:${row.module_id}`, {
+        approvedScore: parseFloat(row.approvedScore) || 0,
+        importedScore: capImportedScore(row.module_id, row.importedScore),
+        total: (parseFloat(row.approvedScore) || 0) + capImportedScore(row.module_id, row.importedScore),
+      });
     }
 
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
@@ -136,10 +165,19 @@ const Score = {
       const moduleScores = [];
       let total = 0;
       for (const mod of modRows) {
-        const score = scoreMap.get(`${student.id}:${mod.id}`) || 0;
+        const breakdown = scoreMap.get(`${student.id}:${mod.id}`) || { approvedScore: 0, importedScore: 0, total: 0 };
+        const score = breakdown.total;
         const baseScore = moduleBaseScore(mod.id);
         // 明细里同时给出原始加分与最终折算分，前端不再自行推算基础分
-        moduleScores.push({ moduleId: mod.id, moduleName: mod.name, score, baseScore, finalScore: score + baseScore });
+        moduleScores.push({
+          moduleId: mod.id,
+          moduleName: mod.name,
+          score,
+          approvedScore: breakdown.approvedScore,
+          importedScore: breakdown.importedScore,
+          baseScore,
+          finalScore: score + baseScore,
+        });
         total += (score + baseScore) * parseFloat(mod.weight) / 100;
       }
       rankings.push({

@@ -108,6 +108,14 @@ async function migrationSatisfied(conn, file) {
   if (file.startsWith('023_')) {
     return await columnExists(conn, 'scoring_modules', 'base_score');
   }
+  if (file.startsWith('024_')) {
+    const [rows] = await conn.query(
+      `SELECT COUNT(*) AS total
+       FROM scoring_items
+       WHERE module_id = 3 AND requires_proof = FALSE AND max_score <= 60`
+    );
+    return rows[0].total > 0;
+  }
   return false;
 }
 

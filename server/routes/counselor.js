@@ -16,6 +16,9 @@ const { resolveManagedClassScope, normalizeClassName, normalizeGrade } = require
 
 router.use(authenticate, requireRole('counselor'));
 
+// 学年截止日为全校统一设置，辅导员可维护；新增、锁定、切换主学年仍仅管理员可操作。
+router.put('/years/:id/deadline', userCtrl.updateYearDeadline);
+
 // 辅导员提交班级变更申请
 router.post('/class-request', classRequestCtrl.createRequest);
 
@@ -88,6 +91,7 @@ router.get('/scores', submissionCtrl.getClassScores);
 
 // 成绩导入
 router.post('/scores/import', submissionCtrl.importScores);
+router.post('/scores/moral-deductions/import', submissionCtrl.importMoralDeductions);
 
 // 审核
 router.get('/review', submissionCtrl.getReviewList);
@@ -95,6 +99,7 @@ router.put('/review/:id', submissionCtrl.review);
 
 // 强制删除负责班级内材料（登录状态任意，锁定学年除外）
 router.delete('/submissions/:id', submissionCtrl.counselorDeleteSubmission);
+router.post('/submissions/batch-delete', submissionCtrl.batchDeleteSubmissions);
 
 // 导出
 router.get('/export/class', exportCtrl.exportClassCSV);
@@ -105,7 +110,10 @@ router.get('/export/proofs', exportCtrl.exportProofImagesZip);
 router.get('/scores/table', authenticate, scoreTableCtrl.getScoreTable);
 router.get('/export/score-table', authenticate, scoreTableCtrl.exportScoreTable);
 
-// 评分规则（辅导员只查看，规则维护由管理员负责）
+// 评分规则（辅导员只可维护德育扣分项，其他规则只能查看）
 router.get('/rules', scoringCtrl.getRules);
+router.post('/rules/items', scoringCtrl.createItem);
+router.put('/rules/items/:id', scoringCtrl.updateItem);
+router.delete('/rules/items/:id', scoringCtrl.deleteItem);
 
 module.exports = router;

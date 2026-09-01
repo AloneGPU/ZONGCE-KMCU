@@ -71,6 +71,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [importStatusMsg, setImportStatusMsg] = useState<string>('');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [selectedTeacherIds, setSelectedTeacherIds] = useState<string[]>([]);
+  const [selectedClassOptionIds, setSelectedClassOptionIds] = useState<number[]>([]);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
   // ============ 班委管理 ============
   const [assistantStudentId, setAssistantStudentId] = useState('');
@@ -269,11 +273,72 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     if (!confirm('确定删除该专业班级选项？已存在学生数据不会被删除。')) return;
     try {
       await apiService.deleteClassOption(id);
+      setSelectedClassOptionIds(selectedClassOptionIds.filter(item => item !== id));
       if (editingClassOptionId === id) cancelEditClassOption();
       await loadClassOptions();
       await loadCollegesData();
       setImportStatusMsg('专业班级选项已从数据库删除。');
     } catch (e: any) { alert('删除失败: ' + (e.message || '请重试')); }
+  };
+
+  const toggleSelectedId = <T,>(value: T, selected: T[], setSelected: (next: T[]) => void) => {
+    setSelected(selected.includes(value) ? selected.filter(item => item !== value) : [...selected, value]);
+  };
+
+  const toggleAllVisibleIds = <T,>(values: T[], selected: T[], setSelected: (next: T[]) => void) => {
+    const allSelected = values.length > 0 && values.every(value => selected.includes(value));
+    setSelected(allSelected ? selected.filter(item => !values.includes(item)) : Array.from(new Set([...selected, ...values])));
+  };
+
+  const deleteSelectedStudents = async () => {
+    if (!isSuperAdmin || selectedStudentIds.length === 0 || isBatchDeleting) return;
+    if (!confirm(`确定批量删除 ${selectedStudentIds.length} 条学生记录？`)) return;
+    setIsBatchDeleting(true);
+    try {
+      await apiService.batchDeleteStudents(selectedStudentIds.map(id => Number(id)));
+      setSelectedStudentIds([]);
+      const res = await apiService.fetchStudents();
+      onUpdateStudents(res as any);
+      setImportStatusMsg('学生记录已批量删除。');
+    } catch (e: any) {
+      alert('批量删除失败: ' + (e.message || '请重试'));
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
+  const deleteSelectedTeachers = async () => {
+    if (!isSuperAdmin || selectedTeacherIds.length === 0 || isBatchDeleting) return;
+    if (!confirm(`确定批量删除 ${selectedTeacherIds.length} 条教师记录？`)) return;
+    setIsBatchDeleting(true);
+    try {
+      await apiService.batchDeleteTeachers(selectedTeacherIds.map(id => Number(id)));
+      setSelectedTeacherIds([]);
+      const res = await apiService.fetchTeachers();
+      onUpdateTeachers(res as any);
+      setImportStatusMsg('教师记录已批量删除。');
+    } catch (e: any) {
+      alert('批量删除失败: ' + (e.message || '请重试'));
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
+  const deleteSelectedClassOptions = async () => {
+    if (!isSuperAdmin || selectedClassOptionIds.length === 0 || isBatchDeleting) return;
+    if (!confirm(`确定批量删除 ${selectedClassOptionIds.length} 条专业班级选项？`)) return;
+    setIsBatchDeleting(true);
+    try {
+      await apiService.batchDeleteClassOptions(selectedClassOptionIds);
+      setSelectedClassOptionIds([]);
+      await loadClassOptions();
+      await loadCollegesData();
+      setImportStatusMsg('专业班级选项已批量删除。');
+    } catch (e: any) {
+      alert('批量删除失败: ' + (e.message || '请重试'));
+    } finally {
+      setIsBatchDeleting(false);
+    }
   };
 
   const parseClassNames = (value: string | string[] | undefined): string[] => {
@@ -451,6 +516,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     if (!confirm(`确定删除学生 ${student.name}（${student.studentId}）？`)) return;
     try {
       await apiService.deleteStudent(Number(student.id));
+      setSelectedStudentIds(selectedStudentIds.filter(id => id !== student.id));
       const res = await apiService.fetchStudents();
       onUpdateStudents(res as any);
       setImportStatusMsg('学生记录已删除。');
@@ -464,6 +530,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     if (!confirm(`确定删除教师 ${teacher.name}（${teacher.teacherId}）？`)) return;
     try {
       await apiService.deleteTeacher(Number(teacher.id));
+      setSelectedTeacherIds(selectedTeacherIds.filter(id => id !== teacher.id));
       const res = await apiService.fetchTeachers();
       onUpdateTeachers(res as any);
       setImportStatusMsg('教师记录已删除。');
@@ -792,6 +859,12 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   });
 
   const filteredTeachers = teachers.filter(t => fieldHit(searchQuery, [t.name, t.teacherId, t.email, t.grade, t.title, t.college, Array.isArray((t as any).classes) ? (t as any).classes.join('、') : (t as any).classes], false));
+  const visibleStudentIds = filteredStudents.map(student => student.id);
+  const visibleTeacherIds = filteredTeachers.map(teacher => teacher.id);
+  const visibleClassOptionIds = classOptions.map(option => option.id);
+  const allVisibleStudentsSelected = visibleStudentIds.length > 0 && visibleStudentIds.every(id => selectedStudentIds.includes(id));
+  const allVisibleTeachersSelected = visibleTeacherIds.length > 0 && visibleTeacherIds.every(id => selectedTeacherIds.includes(id));
+  const allVisibleClassOptionsSelected = visibleClassOptionIds.length > 0 && visibleClassOptionIds.every(id => selectedClassOptionIds.includes(id));
 
   const myTeacher = isCounselorOrAdmin && currentUser?.role === 'counselor' ? teachers.find((t: any) => {
     const tid = String(t.teacherId || t.employee_id || '');
@@ -1006,6 +1079,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     <Plus className="w-3.5 h-3.5" />
                     <span>单条添加</span>
                   </button>
+
+                  <button
+                    onClick={deleteSelectedStudents}
+                    disabled={selectedStudentIds.length === 0 || isBatchDeleting}
+                    className="flex items-center justify-center gap-1 rounded-xl bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-rose-600/20 transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none dark:disabled:bg-slate-700"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>批量删除({selectedStudentIds.length})</span>
+                  </button>
                 </>
               ) : (
                 <div className="flex items-center justify-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
@@ -1052,6 +1134,15 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     <Plus className="w-3.5 h-3.5" />
                     <span>单条添加</span>
                   </button>
+
+                  <button
+                    onClick={deleteSelectedTeachers}
+                    disabled={selectedTeacherIds.length === 0 || isBatchDeleting}
+                    className="flex items-center justify-center gap-1 rounded-xl bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white shadow-md shadow-rose-600/20 transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none dark:disabled:bg-slate-700"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>批量删除({selectedTeacherIds.length})</span>
+                  </button>
                 </>
               ) : (
                 <div className="flex items-center justify-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-400">
@@ -1088,6 +1179,10 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                     className="hidden"
                   />
                 </label>
+                <button onClick={deleteSelectedClassOptions} disabled={selectedClassOptionIds.length === 0 || isBatchDeleting} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-slate-700">
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>批量删除({selectedClassOptionIds.length})</span>
+                </button>
                 {editingClassOptionId && <button onClick={cancelEditClassOption} className="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><X className="h-3.5 w-3.5" /><span>取消编辑</span></button>}
               </div>
             </div>
@@ -1100,7 +1195,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <button onClick={editingClassOptionId ? updateClassOption : saveClassOption} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">{editingClassOptionId ? '保存修改' : '新增班级'}</button>
             </div>
             {classOptions.length === 0 ? <p className="py-8 text-center text-xs text-slate-400">暂无可供登录注册选择的专业班级</p> : (
-              <div className="overflow-x-auto"><table className="w-full min-w-[780px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-3">学院</th><th className="px-3 py-3">年级</th><th className="px-3 py-3">专业</th><th className="px-3 py-3">班级</th><th className="px-3 py-3">注册可选辅导员</th><th className="px-3 py-3 text-right">操作</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{classOptions.map(option => <tr key={option.id}><td className="px-3 py-3 text-slate-500 dark:text-slate-400">{option.college_name || '默认学院'}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.grade}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.major}</td><td className="px-3 py-3 font-semibold text-blue-600 dark:text-blue-400">{option.class_name}</td><td className="px-3 py-3">{option.counselors?.length ? option.counselors.map(item => `${item.name}（${item.grade || '未设置年级'}）`).join('、') : '未绑定'}</td><td className="px-3 py-3"><div className="flex justify-end gap-2"><button onClick={() => beginEditClassOption(option)} title="编辑" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950"><Pencil className="h-3.5 w-3.5" /></button><button onClick={() => removeClassOption(option.id)} title="删除" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>)}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-3"><input type="checkbox" checked={allVisibleClassOptionsSelected} onChange={() => toggleAllVisibleIds(visibleClassOptionIds, selectedClassOptionIds, setSelectedClassOptionIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" title="全选当前班级" /></th><th className="px-3 py-3">学院</th><th className="px-3 py-3">年级</th><th className="px-3 py-3">专业</th><th className="px-3 py-3">班级</th><th className="px-3 py-3">注册可选辅导员</th><th className="px-3 py-3 text-right">操作</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{classOptions.map(option => <tr key={option.id}><td className="px-3 py-3"><input type="checkbox" checked={selectedClassOptionIds.includes(option.id)} onChange={() => toggleSelectedId(option.id, selectedClassOptionIds, setSelectedClassOptionIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" /></td><td className="px-3 py-3 text-slate-500 dark:text-slate-400">{option.college_name || '默认学院'}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.grade}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.major}</td><td className="px-3 py-3 font-semibold text-blue-600 dark:text-blue-400">{option.class_name}</td><td className="px-3 py-3">{option.counselors?.length ? option.counselors.map(item => `${item.name}（${item.grade || '未设置年级'}）`).join('、') : '未绑定'}</td><td className="px-3 py-3"><div className="flex justify-end gap-2"><button onClick={() => beginEditClassOption(option)} title="编辑" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950"><Pencil className="h-3.5 w-3.5" /></button><button onClick={() => removeClassOption(option.id)} title="删除" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>)}</tbody></table></div>
             )}
           </div>
         ) : activeSubTab === 'assistants' ? (
@@ -1141,6 +1236,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
                 <tr>
+                  {isSuperAdmin && <th className="px-4 py-3"><input type="checkbox" checked={allVisibleStudentsSelected} onChange={() => toggleAllVisibleIds(visibleStudentIds, selectedStudentIds, setSelectedStudentIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" title="全选当前学生" /></th>}
                   <th className="px-4 py-3">序号</th>
                   <th className="px-4 py-3">学号</th>
                   <th className="px-4 py-3">姓名</th>
@@ -1153,13 +1249,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredStudents.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={isSuperAdmin ? 8 : 7} className="px-4 py-8 text-center text-slate-400">
                       未检索到匹配的学生记录
                     </td>
                   </tr>
                 ) : (
                   filteredStudents.map((student, idx) => (
                     <tr key={student.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      {isSuperAdmin && <td className="px-4 py-3"><input type="checkbox" checked={selectedStudentIds.includes(student.id)} onChange={() => toggleSelectedId(student.id, selectedStudentIds, setSelectedStudentIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" /></td>}
                       <td className="px-4 py-3 font-mono text-slate-400">{idx + 1}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white font-mono">
                         {student.studentId}
@@ -1198,6 +1295,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
                 <tr>
+                  {isSuperAdmin && <th className="px-4 py-3"><input type="checkbox" checked={allVisibleTeachersSelected} onChange={() => toggleAllVisibleIds(visibleTeacherIds, selectedTeacherIds, setSelectedTeacherIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" title="全选当前教师" /></th>}
                   <th className="px-4 py-3">序号</th>
                   <th className="px-4 py-3">工号</th>
                   <th className="px-4 py-3">姓名</th>
@@ -1212,13 +1310,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredTeachers.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={isSuperAdmin ? 10 : 9} className="px-4 py-8 text-center text-slate-400">
                       未检索到匹配的教师记录
                     </td>
                   </tr>
                 ) : (
                   filteredTeachers.map((teacher, idx) => (
                     <tr key={teacher.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
+                      {isSuperAdmin && <td className="px-4 py-3"><input type="checkbox" checked={selectedTeacherIds.includes(teacher.id)} onChange={() => toggleSelectedId(teacher.id, selectedTeacherIds, setSelectedTeacherIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" /></td>}
                       <td className="px-4 py-3 font-mono text-slate-400">{idx + 1}</td>
                       <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white font-mono">
                         {teacher.teacherId}

@@ -7,6 +7,11 @@ const pool = require('../config/database');
 const { getCurrentYearId } = require('../utils/year');
 const { canonicalizeClassNames, normalizeClassName, normalizeGrade, resolveManagedClassScope } = require('../utils/className');
 
+function capImportedScore(moduleId, score) {
+  const value = Number(score) || 0;
+  return Number(moduleId) === 3 ? Math.min(value, 60) : value;
+}
+
 // 单个学生级计算（与 score.js calcTotalScore 公式一致）
 async function calcStudentScoreTable(studentId, yearId) {
   const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
@@ -22,15 +27,36 @@ async function calcStudentScoreTable(studentId, yearId) {
   );
 
   const moduleTotals = {};
-  for (const m of modRows) moduleTotals[m.id] = 0;
-  for (const s of subScores) moduleTotals[s.module_id] = (moduleTotals[s.module_id] || 0) + Number(s.total);
-  for (const s of impScores) moduleTotals[s.module_id] = (moduleTotals[s.module_id] || 0) + Number(s.total);
+  const approvedTotals = {};
+  const importedTotals = {};
+  for (const m of modRows) {
+    moduleTotals[m.id] = 0;
+    approvedTotals[m.id] = 0;
+    importedTotals[m.id] = 0;
+  }
+  for (const s of subScores) {
+    approvedTotals[s.module_id] = (approvedTotals[s.module_id] || 0) + Number(s.total);
+    moduleTotals[s.module_id] = (moduleTotals[s.module_id] || 0) + Number(s.total);
+  }
+  for (const s of impScores) {
+    const score = capImportedScore(s.module_id, s.total);
+    importedTotals[s.module_id] = (importedTotals[s.module_id] || 0) + score;
+    moduleTotals[s.module_id] = (moduleTotals[s.module_id] || 0) + score;
+  }
 
   const modScores = {};
   for (const m of modRows) {
     let raw = moduleTotals[m.id] || 0;
     raw = Score.moduleBaseScore(m.id) + raw;
-    modScores[m.id] = { id: m.id, name: m.name, weight: Number(m.weight), raw: raw };
+    modScores[m.id] = {
+      id: m.id,
+      name: m.name,
+      weight: Number(m.weight),
+      raw: raw,
+      approved: approvedTotals[m.id] || 0,
+      imported: importedTotals[m.id] || 0,
+      configuredBase: Score.moduleBaseScore(m.id),
+    };
   }
 
   const totalScore = +Object.values(modScores).reduce((s, m) => s + +(m.raw * m.weight / 100).toFixed(2), 0).toFixed(2);
@@ -45,11 +71,11 @@ async function calcStudentScoreTable(studentId, yearId) {
   // 35列格式（参照学校模板）: 序号|学号|姓名|性别 + 6模块(操行+分值) + 操行汇总|综测总分|排名
   return {
     // 德育(5列): 基础分|加分|减分|实际合计|加权分——无操行列
-    d1Base: 60, d1Bonus: +(Math.max(m1.raw - 60, 0)).toFixed(1), d1Deduct: 0, d1Total: m1.raw, d1Weighted: +(m1.raw * 0.2).toFixed(2),
+    d1Base: 60, d1Bonus: +(Math.max(m1.approved || 0, 0)).toFixed(1), d1Deduct: +(Math.abs(Math.min(m1.imported || 0, 0))).toFixed(1), d1Total: m1.raw, d1Weighted: +(m1.raw * 0.2).toFixed(2),
     // 智育(3列): 操行|学业成绩|加权分
     d2Conduct: 0, d2Total: m2.raw, d2Weighted: +(m2.raw * 0.4).toFixed(2),
     // 体育(5列): 操行|基础分|加分|实际合计|加权分
-    d3Conduct: 0, d3Base: m3.raw, d3Bonus: 0, d3Total: m3.raw, d3Weighted: +(m3.raw * 0.1).toFixed(2),
+    d3Conduct: 0, d3Base: +(m3.imported || 0).toFixed(1), d3Bonus: +(m3.approved || 0).toFixed(1), d3Total: m3.raw, d3Weighted: +(m3.raw * 0.1).toFixed(2),
     // 能力(5列): 操行|基础分|加分|实际合计|加权分
     d4Conduct: 0, d4Base: 60, d4Bonus: +(Math.max(m4.raw - 60, 0)).toFixed(1), d4Total: m4.raw, d4Weighted: +(m4.raw * 0.1).toFixed(2),
     // 美育(5列): 操行|基础分|加分|实际合计|加权分

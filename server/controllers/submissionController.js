@@ -25,6 +25,18 @@ async function assertYearNotLocked(yearId) {
   }
 }
 
+async function assertSubmissionDeadline(yearId) {
+  const [rows] = await pool.query(
+    'SELECT deadline FROM academic_years WHERE id = ? AND deadline IS NOT NULL AND deadline < CURDATE()',
+    [yearId]
+  );
+  if (rows.length > 0) {
+    const error = new Error(`该学年的材料提交截止日为 ${rows[0].deadline instanceof Date ? rows[0].deadline.toISOString().slice(0, 10) : String(rows[0].deadline).slice(0, 10)}，当前已超过截止时间，不能继续提交`);
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
 async function assertCanReviewSubmission(req, submission) {
   if (!submission) {
     const error = new Error('提交记录不存在');
@@ -133,6 +145,7 @@ exports.create = async (req, res) => {
     // 获取学年名
     const yearId = await getCurrentYearId(academicYearId);
     await assertYearNotLocked(yearId);
+    await assertSubmissionDeadline(yearId);
     const [yearRows] = await pool.query('SELECT name FROM academic_years WHERE id = ?', [yearId]);
     const yearName = yearRows[0] ? yearRows[0].name : 'unknown';
 
@@ -355,6 +368,81 @@ exports.counselorDeleteSubmission = async (req, res) => {
   }
 };
 
+async function assertCanDeleteSubmission(req, sub, counselorScope) {
+  if (!sub) return { ok: false, reason: '提交记录不存在' };
+  try {
+    await assertYearNotLocked(sub.academic_year_id);
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+  if (req.user.role === 'admin') return { ok: true };
+
+  if (req.user.role !== 'counselor') return { ok: false, reason: '无权删除材料' };
+  if (!counselorScope || counselorScope.classNames.length === 0) {
+    return { ok: false, reason: '未配置负责班级，无权删除材料' };
+  }
+
+  const allowed = counselorScope.classNames.some(item => (
+    normalizeClassName(item) === normalizeClassName(sub.class_name) &&
+      (!counselorScope.grade || normalizeGrade(counselorScope.grade) === normalizeGrade(sub.grade))
+  ));
+  return allowed ? { ok: true } : { ok: false, reason: '该材料不属于当前负责的班级' };
+}
+
+// ==================== 管理员/辅导员批量删除材料 ====================
+exports.batchDeleteSubmissions = async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids)
+      ? Array.from(new Set(req.body.ids.map(id => parseInt(id, 10)).filter(id => Number.isInteger(id) && id > 0)))
+      : [];
+    if (ids.length === 0) return res.status(400).json({ error: '请选择要删除的材料' });
+    if (ids.length > 500) return res.status(400).json({ error: '单次最多批量删除 500 条材料' });
+
+    let counselorScope = null;
+    if (req.user.role === 'counselor') {
+      const teacher = await Teacher.findByUserId(req.user.userId);
+      if (!teacher) return res.status(404).json({ error: '未找到教师信息' });
+      counselorScope = await resolveManagedClassScope(pool, teacher);
+    }
+
+    const deleted = [];
+    const skipped = [];
+    for (const id of ids) {
+      const sub = await Submission.findById(id);
+      const access = await assertCanDeleteSubmission(req, sub, counselorScope);
+      if (!access.ok) {
+        skipped.push({ id, reason: access.reason });
+        continue;
+      }
+
+      await Submission.delete(id);
+      if (sub.proof_path) {
+        try {
+          require('../utils/upload').deleteStoredFile(sub.proof_path);
+        } catch (cleanupErr) {
+          skipped.push({ id, reason: '材料记录已删除，但图片清理失败: ' + cleanupErr.message });
+        }
+      }
+      deleted.push(id);
+    }
+
+    await auditLog(req, 'submission.batch_delete', 'submission', null, {
+      requested: ids.length,
+      deleted: deleted.length,
+      skipped: skipped.length,
+      role: req.user.role,
+    });
+    res.json({
+      deletedCount: deleted.length,
+      skippedCount: skipped.length,
+      skipped: skipped.slice(0, 20),
+      message: `已删除 ${deleted.length} 条材料${skipped.length ? `，跳过 ${skipped.length} 条` : ''}`,
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+};
+
 // ==================== 审核流程 ====================
 exports.getReviewList = async (req, res) => {
   try {
@@ -475,10 +563,18 @@ exports.getMyScores = async (req, res) => {
 
     const moduleScores = [];
     for (const mod of modRows) {
-      const modScore = await Score.calcModuleScore(student.id, yearId, mod.id);
+      const breakdown = await Score.calcModuleBreakdown(student.id, yearId, mod.id);
       const modItems = itemRows.filter(i => i.module_id === mod.id);
       const baseScore = Score.moduleBaseScore(mod.id);
-      moduleScores.push({ ...mod, score: modScore, baseScore, finalScore: modScore + baseScore, items: modItems });
+      moduleScores.push({
+        ...mod,
+        score: breakdown.total,
+        approvedScore: breakdown.approvedScore,
+        importedScore: breakdown.importedScore,
+        baseScore,
+        finalScore: breakdown.total + baseScore,
+        items: modItems,
+      });
     }
 
     const totalScore = await Score.calcTotalScore(student.id, yearId);
@@ -591,11 +687,17 @@ exports.importScores = async (req, res) => {
     const parsedModuleId = parseInt(moduleId, 10);
     const parsedItemId = parseInt(itemId, 10);
     const [itemRows] = await pool.query(
-      'SELECT id, module_id, max_score, requires_proof FROM scoring_items WHERE id = ? AND module_id = ?',
+      `SELECT si.id, si.module_id, si.max_score, si.requires_proof, sm.name AS module_name
+       FROM scoring_items si
+       JOIN scoring_modules sm ON sm.id = si.module_id
+       WHERE si.id = ? AND si.module_id = ?`,
       [parsedItemId, parsedModuleId]
     );
     const item = itemRows[0];
     if (!item) return res.status(400).json({ error: '导入项目与所属板块不匹配' });
+    if (![2, 3].includes(Number(item.module_id))) {
+      return res.status(400).json({ error: '基础成绩批量导入仅支持智育和体育。德育扣分请使用“德育扣分批量导入”。' });
+    }
     if (item.requires_proof) return res.status(400).json({ error: '该项目需要材料审核，不能通过成绩表直接导入' });
 
     const isAdmin = req.user.role === 'admin';
@@ -617,11 +719,12 @@ exports.importScores = async (req, res) => {
       const inScope = isAdmin || (student &&
         allowedKeys.has(normalizeClassName(student.class_name)) &&
         (!scope.grade || normalizeGrade(student.grade) === normalizeGrade(scope.grade)));
-      const validScore = Number.isFinite(score) && score >= 0 && score <= Number(item.max_score);
+      const maxScore = parsedModuleId === 3 ? Math.min(60, Number(item.max_score)) : Number(item.max_score);
+      const validScore = Number.isFinite(score) && score >= 0 && score <= maxScore;
       if (!student || !inScope || !validScore) {
         invalidRows.push({
           studentId: s.studentId,
-          reason: !student ? '学号不存在' : !inScope ? '不在负责范围' : `成绩应在 0-${item.max_score} 之间`,
+          reason: !student ? '学号不存在' : !inScope ? '不在负责范围' : `成绩应在 0-${maxScore} 之间`,
         });
       } else {
         resolved.push({
@@ -646,5 +749,120 @@ exports.importScores = async (req, res) => {
     res.json({ count: results.length, message: '成功导入 ' + results.length + ' 条成绩' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+// ==================== 德育扣分批量导入 ====================
+exports.importMoralDeductions = async (req, res) => {
+  try {
+    const { deductions, yearId } = req.body;
+    if (!Array.isArray(deductions) || deductions.length === 0) {
+      return res.status(400).json({ error: '请提供要导入的德育扣分记录' });
+    }
+    if (deductions.length > 5000) return res.status(400).json({ error: '单次最多导入 5000 条扣分记录' });
+
+    const resolvedYearId = await getCurrentYearId(yearId);
+    await assertYearNotLocked(resolvedYearId);
+
+    const [deductionItems] = await pool.query(
+      `SELECT si.id, si.module_id, si.name, si.max_score
+       FROM scoring_items si
+       JOIN scoring_modules sm ON sm.id = si.module_id
+       WHERE sm.name = '德育' AND si.requires_proof = FALSE AND si.max_score < 0`
+    );
+    const itemMap = new Map(deductionItems.map(item => [Number(item.id), item]));
+    if (itemMap.size === 0) return res.status(400).json({ error: '当前规则中没有可批量导入的德育扣分项' });
+
+    const isAdmin = req.user.role === 'admin';
+    const teacher = isAdmin ? null : await Teacher.findByUserId(req.user.userId);
+    const scope = isAdmin ? { classNames: [], grade: '' } : await resolveManagedClassScope(pool, teacher);
+    if (!isAdmin && (!scope || scope.classNames.length === 0)) {
+      return res.status(403).json({ error: '未配置负责班级，无法导入德育扣分' });
+    }
+    const allowedKeys = new Set((scope.classNames || []).map(normalizeClassName));
+
+    const invalidRows = [];
+    const grouped = new Map();
+    for (const row of deductions) {
+      const studentCode = String(row.studentId || '').trim();
+      const itemId = parseInt(row.itemId, 10);
+      const item = itemMap.get(itemId);
+      const count = row.count === undefined || row.count === '' ? 1 : Number(row.count);
+      const manualScore = row.score === undefined || row.score === '' ? null : Number(row.score);
+
+      const [students] = await pool.query(
+        'SELECT id, student_id, name, class_name, grade FROM students WHERE student_id = ?',
+        [studentCode]
+      );
+      const student = students[0];
+      const inScope = isAdmin || (student &&
+        allowedKeys.has(normalizeClassName(student.class_name)) &&
+        (!scope.grade || normalizeGrade(scope.grade) === normalizeGrade(student.grade)));
+
+      let score = Number(item && item.max_score);
+      if (Number.isFinite(manualScore)) {
+        score = manualScore > 0 ? -manualScore : manualScore;
+      } else if (Number.isInteger(count) && count >= 1 && count <= 100 && item) {
+        score = Number(item.max_score) * count;
+      }
+
+      const minScore = item ? Number(item.max_score) * 100 : 0;
+      const validScore = item && Number.isFinite(score) && score < 0 && score >= minScore;
+      if (!student || !item || !inScope || !validScore) {
+        invalidRows.push({
+          studentId: studentCode,
+          itemId: row.itemId,
+          reason: !student ? '学号不存在' : !item ? '扣分项不存在或不是德育扣分项' : !inScope ? '不在负责范围' : '扣分值无效',
+        });
+        continue;
+      }
+
+      const key = `${student.id}:${item.id}`;
+      const current = grouped.get(key) || {
+        studentId: student.id,
+        studentCode: student.student_id,
+        studentName: student.name,
+        academicYearId: resolvedYearId,
+        moduleId: Number(item.module_id || 1),
+        itemId: item.id,
+        itemName: item.name,
+        score: 0,
+      };
+      current.score += score;
+      grouped.set(key, current);
+    }
+
+    if (invalidRows.length > 0) {
+      return res.status(400).json({
+        error: `有 ${invalidRows.length} 条德育扣分无法导入，请修正后重新提交`,
+        invalidRows: invalidRows.slice(0, 20),
+      });
+    }
+
+    const rows = Array.from(grouped.values());
+    const results = await Score.importScores(rows, req.user.userId);
+    const byItem = rows.reduce((acc, row) => {
+      const key = row.itemName;
+      const current = acc[key] || { itemName: key, count: 0, total: 0 };
+      current.count += 1;
+      current.total += row.score;
+      acc[key] = current;
+      return acc;
+    }, {});
+    const totalDeduction = rows.reduce((sum, row) => sum + row.score, 0);
+
+    await auditLog(req, 'scores.import_moral_deductions', 'imported_scores', null, {
+      count: results.length,
+      totalDeduction,
+      yearId: resolvedYearId,
+    });
+    res.json({
+      count: results.length,
+      totalDeduction,
+      byItem: Object.values(byItem),
+      message: `成功导入 ${results.length} 条德育扣分，合计扣 ${Math.abs(totalDeduction)} 分`,
+    });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 };

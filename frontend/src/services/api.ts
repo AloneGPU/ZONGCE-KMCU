@@ -122,8 +122,14 @@ export function mapSubmission(submission: any): ProofMaterial {
 function moduleScore(ranking: any, moduleName: string) {
   const module = (ranking.modules || []).find((item: any) => item.moduleName === moduleName);
   if (!module) return null;
+  const approved = Number(module.approvedScore || 0);
+  const imported = Number(module.importedScore || 0);
+  const hasBreakdown = module.approvedScore !== undefined || module.importedScore !== undefined;
   return {
     score: Number(module.score || 0),
+    approved,
+    imported,
+    hasBreakdown,
     base: Number(module.baseScore || 0),
     // 服务端已含基础分时用 finalScore，兼容未升级前的旧响应
     final: Number(module.finalScore ?? module.score ?? 0),
@@ -132,7 +138,7 @@ function moduleScore(ranking: any, moduleName: string) {
 
 export function mapRanking(ranking: any, year: string, college = ''): StudentScoreSummary {
   // 分数一律来自服务端:score=模块原始加分, finalScore=已含基础分的最终分
-  const ZERO = { score: 0, base: 0, final: 0 };
+  const ZERO = { score: 0, approved: 0, imported: 0, hasBreakdown: true, base: 0, final: 0 };
   const moral = moduleScore(ranking, '德育') || ZERO;
   const ability = moduleScore(ranking, '能力') || ZERO;
   const aesthetic = moduleScore(ranking, '美育') || ZERO;
@@ -145,13 +151,15 @@ export function mapRanking(ranking: any, year: string, college = ''): StudentSco
   const abilityDelta = ability.score;
   const aestheticDelta = aesthetic.score;
   const laborDelta = labor.score;
+  const physicalImported = physical.hasBreakdown ? physical.imported : physical.score;
+  const physicalApproved = physical.hasBreakdown ? physical.approved : 0;
 
   return {
     studentId: ranking.studentCode, studentName: ranking.studentName, grade: ranking.grade || '',
     majorClass: ranking.className || '', college, academicYear: year,
-    moralBase: moral.base, moralDeduction: Math.max(0, -moralDelta), intellectualBase: intellectual.final,
-    physicalBase: physical.final, abilityBase: ability.base, aestheticsBase: aesthetic.base, laborBase: labor.base,
-    moralBonus: Math.max(0, moralDelta), intellectualBonus: 0, physicalBonus: 0,
+    moralBase: moral.base, moralDeduction: Math.max(0, -(moral.hasBreakdown ? moral.imported : Math.min(moralDelta, 0))), intellectualBase: intellectual.final,
+    physicalBase: physicalImported, abilityBase: ability.base, aestheticsBase: aesthetic.base, laborBase: labor.base,
+    moralBonus: Math.max(0, moral.hasBreakdown ? moral.approved : moralDelta), intellectualBonus: 0, physicalBonus: Math.max(0, physicalApproved),
     abilityBonus: Math.max(0, abilityDelta), aestheticsBonus: Math.max(0, aestheticDelta),
     laborBonus: Math.max(0, laborDelta), extraBonus: 0,
     moralFinal: moral.final, intellectualFinal: intellectual.final, physicalFinal: physical.final, abilityFinal: ability.final, aestheticsFinal: aesthetic.final, laborFinal: labor.final,
@@ -295,6 +303,11 @@ export const apiService = {
   deleteMaterial(id: string) { return request('/student/submissions/' + id, { method: 'DELETE' }); },
   adminDeleteMaterial(id: string) { return request('/admin/submissions/' + id, { method: 'DELETE' }); },
   counselorDeleteMaterial(id: string) { return request('/counselor/submissions/' + id, { method: 'DELETE' }); },
+  batchDeleteMaterials(role: 'admin' | 'counselor', ids: string[]) {
+    return request((role === 'admin' ? '/admin' : '/counselor') + '/submissions/batch-delete', {
+      method: 'POST', body: JSON.stringify({ ids })
+    });
+  },
   cleanupProofOrphans(files: string[]) { return request<{ deletedCount: number; failedCount: number }>('/admin/proofs/cleanup', { method: 'POST', body: JSON.stringify({ files }) }); },
   reviewMaterial(role: User['role'], id: string, action: 'approve' | 'reject', reason?: string) {
     const root = role === 'assistant' ? '/assistant' : role === 'admin' ? '/admin' : '/counselor';
@@ -370,6 +383,11 @@ export const apiService = {
       method: 'POST', body: JSON.stringify({ scores, moduleId: Number(moduleId), itemId: Number(itemId), yearId: year })
     });
   },
+  importMoralDeductions(role: 'admin' | 'counselor', deductions: Array<{ studentId: string; itemId: string | number; count?: number; score?: number }>, year: string) {
+    return request((role === 'admin' ? '/admin' : '/counselor') + '/scores/moral-deductions/import', {
+      method: 'POST', body: JSON.stringify({ deductions, yearId: year })
+    });
+  },
   toggleRules(role: User['role']) {
     // 规则锁定仅对管理员开放；辅导员/班委端不提供锁定接口
     return request('/admin/rules/lock', { method: 'PUT' });
@@ -378,15 +396,26 @@ export const apiService = {
   createScoringModule(name: string, weight: number) { return request('/admin/rules/modules', { method: 'POST', body: JSON.stringify({ name, weight }) }); },
   updateScoringModule(id: number, weight: number) { return request('/admin/rules/modules/' + id, { method: 'PUT', body: JSON.stringify({ weight }) }); },
   deleteScoringModule(id: number) { return request('/admin/rules/modules/' + id, { method: 'DELETE' }); },
-  createScoringItem(data: { moduleId: number; name: string; maxScore: number; description: string; requiresProof: boolean; evidence: string }) { return request('/admin/rules/items', { method: 'POST', body: JSON.stringify(data) }); },
-  updateScoringItem(id: number, data: { moduleId?: number; name?: string; maxScore?: number; description?: string; requiresProof?: boolean; evidence?: string }) { return request('/admin/rules/items/' + id, { method: 'PUT', body: JSON.stringify(data) }); },
-  deleteScoringItem(id: number) { return request('/admin/rules/items/' + id, { method: 'DELETE' }); },
+  createScoringItem(data: { moduleId: number; name: string; maxScore: number; description: string; requiresProof: boolean; evidence: string }, role: User['role'] = 'admin') {
+    return request((role === 'counselor' ? '/counselor' : '/admin') + '/rules/items', { method: 'POST', body: JSON.stringify(data) });
+  },
+  updateScoringItem(id: number, data: { moduleId?: number; name?: string; maxScore?: number; description?: string; requiresProof?: boolean; evidence?: string }, role: User['role'] = 'admin') {
+    return request((role === 'counselor' ? '/counselor' : '/admin') + '/rules/items/' + id, { method: 'PUT', body: JSON.stringify(data) });
+  },
+  deleteScoringItem(id: number, role: User['role'] = 'admin') {
+    return request((role === 'counselor' ? '/counselor' : '/admin') + '/rules/items/' + id, { method: 'DELETE' });
+  },
   // 用户管理
   createYear(name: string, deadline?: string) {
     return request<{ year: any }>('/admin/years', { method: 'POST', body: JSON.stringify({ name, deadline: deadline || null }) });
   },
   toggleYearLock(id: number, locked: boolean) {
     return request('/admin/years/' + id + '/lock', { method: 'PUT', body: JSON.stringify({ locked }) });
+  },
+  updateYearDeadline(role: 'admin' | 'counselor', id: number, deadline?: string) {
+    return request((role === 'counselor' ? '/counselor' : '/admin') + '/years/' + id + '/deadline', {
+      method: 'PUT', body: JSON.stringify({ deadline: deadline || null })
+    });
   },
   activateYear(id: number) {
     return request('/admin/years/' + id + '/activate', { method: 'PUT' });
@@ -399,6 +428,8 @@ export const apiService = {
   importTeachers(teachers: any[]) { return request('/admin/teachers/import', { method: 'POST', body: JSON.stringify({ teachers }) }); },
   deleteStudent(id: number) { return request('/admin/students/' + id, { method: 'DELETE' }); },
   deleteTeacher(id: number) { return request('/admin/teachers/' + id, { method: 'DELETE' }); },
+  batchDeleteStudents(ids: number[]) { return request('/admin/students/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) }); },
+  batchDeleteTeachers(ids: number[]) { return request('/admin/teachers/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) }); },
   promoteAssistant(studentId: string, className?: string) { return request('/admin/assistants/promote', { method: 'POST', body: JSON.stringify({ studentId, className }) }); },
   demoteAssistant(studentId: string) { return request('/admin/assistants/demote', { method: 'POST', body: JSON.stringify({ studentId }) }); },
   getAssistants() { return request('/admin/assistants'); },
@@ -433,6 +464,7 @@ export const apiService = {
   importClassOptions(options: Array<{ collegeId?: number | null; grade: string; major: string; className: string; counselorEmployeeId?: string; counselorName?: string }>) { return request<{ count: number; counselorBound: number; counselorFailed: number }>('/admin/class-options/import', { method: 'POST', body: JSON.stringify({ options }) }); },
   assignClassOptionCounselor(id: number, counselorId: number) { return request('/admin/class-options/' + id + '/counselor', { method: 'PUT', body: JSON.stringify({ counselorId }) }); },
   deleteClassOption(id: number) { return request('/admin/class-options/' + id, { method: 'DELETE' }); },
+  batchDeleteClassOptions(ids: number[]) { return request('/admin/class-options/batch-delete', { method: 'POST', body: JSON.stringify({ ids }) }); },
   exportUrl(path: string) {
     return BASE_URL + '/api' + path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(getToken());
   },

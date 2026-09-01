@@ -39,6 +39,35 @@ function sendError(res, err) {
   return res.status(err.statusCode || 500).json({ error: err.message });
 }
 
+function isMoralModule(module) {
+  return String((module && module.name) || '').trim() === '德育';
+}
+
+function isMoralDeductionItem(item) {
+  return Boolean(item) && isMoralModule({ name: item.module_name }) && !Boolean(item.requires_proof) && Number(item.max_score) < 0;
+}
+
+function normalizeDeductionScore(value, label = '扣分值') {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0 || Math.abs(number) > 1000) {
+    const error = new Error(`${label}必须是 0 至 1000 之间的非零数字`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return number > 0 ? -number : number;
+}
+
+async function getItemWithModule(id) {
+  const [rows] = await pool.query(
+    `SELECT si.*, sm.name AS module_name
+     FROM scoring_items si
+     JOIN scoring_modules sm ON sm.id = si.module_id
+     WHERE si.id = ?`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
 // 获取完整规则
 exports.getRules = async (req, res) => {
   try {
@@ -125,16 +154,38 @@ exports.createItem = async (req, res) => {
     const lock = await ScoringRule.getLockStatus();
     if (lock.is_locked) return res.status(403).json({ error: '规则已锁定' });
 
-    const data = {
-      ...req.body,
-      name: cleanName(req.body.name, '加分项名称'),
-      maxScore: parseFiniteNumber(req.body.maxScore, '加分项分值', 0, 1000),
-    };
-    const moduleId = Number(data.moduleId);
+    const moduleId = Number(req.body.moduleId);
     if (!Number.isInteger(moduleId) || moduleId <= 0 || !await ScoringRule.getModuleById(moduleId)) {
       return res.status(400).json({ error: '所属评分模块无效' });
     }
-    data.moduleId = moduleId;
+    const module = await ScoringRule.getModuleById(moduleId);
+    const existingMoralModule = isMoralModule(module);
+    const isCounselor = req.user.role === 'counselor';
+    if (isCounselor && !existingMoralModule) {
+      return res.status(403).json({ error: '辅导员仅可维护德育扣分项' });
+    }
+
+    const rawMaxScore = req.body.maxScore;
+    const requiresProof = isCounselor
+      ? false
+      : req.body.requiresProof !== undefined ? Boolean(req.body.requiresProof) : true;
+    let maxScore = parseFiniteNumber(rawMaxScore, '加分项分值', -1000, 1000);
+    if (existingMoralModule && !requiresProof) {
+      maxScore = normalizeDeductionScore(rawMaxScore, '扣分值');
+    } else if (maxScore < 0) {
+      return res.status(400).json({ error: '非德育扣分项的分值不能为负数' });
+    }
+
+    const data = {
+      ...req.body,
+      name: cleanName(req.body.name, '加分项名称'),
+      moduleId,
+      maxScore,
+      requiresProof: existingMoralModule && !requiresProof ? false : requiresProof,
+    };
+    if (isCounselor) {
+      data.requiresProof = false;
+    }
     const item = await ScoringRule.createItem(data);
     await auditLog(req, 'rules.item.create', 'scoring_item', item.id, req.body);
     res.status(201).json({ item });
@@ -149,15 +200,46 @@ exports.updateItem = async (req, res) => {
     const lock = await ScoringRule.getLockStatus();
     if (lock.is_locked) return res.status(403).json({ error: '规则已锁定' });
 
+    const current = await getItemWithModule(req.params.id);
+    if (!current) return res.status(404).json({ error: '加分项不存在' });
+    const module = await ScoringRule.getModuleById(current.module_id);
+    const isCounselor = req.user.role === 'counselor';
+    if (isCounselor && !isMoralDeductionItem(current)) {
+      return res.status(403).json({ error: '辅导员仅可维护德育扣分项' });
+    }
+
     const data = { ...req.body };
     if (data.name !== undefined) data.name = cleanName(data.name, '加分项名称');
-    if (data.maxScore !== undefined) data.maxScore = parseFiniteNumber(data.maxScore, '加分项分值', 0, 1000);
+    if (data.maxScore !== undefined) {
+      if (isMoralModule(module)) {
+        const requiresProof = data.requiresProof !== undefined ? Boolean(data.requiresProof) : Boolean(current.requires_proof);
+        if (!requiresProof) {
+          data.maxScore = normalizeDeductionScore(data.maxScore, '扣分值');
+        } else {
+          data.maxScore = parseFiniteNumber(data.maxScore, '加分项分值', 0, 1000);
+        }
+      } else {
+        data.maxScore = parseFiniteNumber(data.maxScore, '加分项分值', 0, 1000);
+      }
+    }
     if (data.moduleId !== undefined) {
       const moduleId = Number(data.moduleId);
-      if (!Number.isInteger(moduleId) || moduleId <= 0 || !await ScoringRule.getModuleById(moduleId)) {
+      const targetModule = await ScoringRule.getModuleById(moduleId);
+      if (!Number.isInteger(moduleId) || moduleId <= 0 || !targetModule) {
         return res.status(400).json({ error: '所属评分模块无效' });
       }
+      if (isCounselor && !isMoralModule(targetModule)) {
+        return res.status(403).json({ error: '辅导员仅可维护德育扣分项' });
+      }
+      if (isCounselor && data.requiresProof === true) {
+        return res.status(400).json({ error: '德育扣分项不能设置为需要材料审核' });
+      }
       data.moduleId = moduleId;
+    }
+    if (isCounselor) {
+      data.requiresProof = false;
+    } else if (data.requiresProof !== undefined && isMoralModule(module)) {
+      data.requiresProof = Boolean(data.requiresProof);
     }
     const updated = await ScoringRule.updateItem(req.params.id, data);
     if (updated === false) return res.status(404).json({ error: '加分项不存在' });
@@ -174,6 +256,11 @@ exports.deleteItem = async (req, res) => {
     const lock = await ScoringRule.getLockStatus();
     if (lock.is_locked) return res.status(403).json({ error: '规则已锁定' });
 
+    const current = await getItemWithModule(req.params.id);
+    if (!current) return res.status(404).json({ error: '加分项不存在' });
+    if (req.user.role === 'counselor' && !isMoralDeductionItem(current)) {
+      return res.status(403).json({ error: '辅导员仅可删除德育扣分项' });
+    }
     const [references] = await pool.query(
       `SELECT
          (SELECT COUNT(*) FROM submissions WHERE item_id = ?) AS submissions,

@@ -58,6 +58,25 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
 }
 
+function parseBatchIds(value) {
+  const ids = Array.from(new Set(
+    (Array.isArray(value) ? value : [])
+      .map(id => Number(id))
+      .filter(id => Number.isInteger(id) && id > 0)
+  ));
+  if (ids.length === 0) {
+    const error = new Error('请选择要删除的记录');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (ids.length > 500) {
+    const error = new Error('单次最多批量删除 500 条记录');
+    error.statusCode = 400;
+    throw error;
+  }
+  return ids;
+}
+
 async function inferCounselorNameForClass(className) {
   const classKey = normalizeClassName(className);
   if (!classKey) return '';
@@ -209,7 +228,7 @@ exports.getDashboard = async (req, res) => {
 // ==================== 学年管理 ====================
 exports.getYears = async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM academic_years ORDER BY name');
+    const [rows] = await pool.query("SELECT * FROM academic_years WHERE name <> '2024-2025' ORDER BY name");
     res.json({ years: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -230,6 +249,22 @@ exports.createYear = async (req, res) => {
     if (err.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ error: '该学年已存在' });
     }
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// 管理员与辅导员均可调整材料申报截止日；学年归档、主学年切换等高风险操作仍仅管理员可用。
+exports.updateYearDeadline = async (req, res) => {
+  try {
+    const deadline = req.body.deadline || null;
+    if (deadline && !/^\d{4}-\d{2}-\d{2}$/.test(String(deadline))) {
+      return res.status(400).json({ error: '截止日期格式应为 YYYY-MM-DD' });
+    }
+    const [result] = await pool.query('UPDATE academic_years SET deadline = ? WHERE id = ?', [deadline, req.params.id]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: '学年不存在' });
+    await auditLog(req, 'year.deadline.update', 'academic_year', req.params.id, { deadline });
+    res.json({ message: deadline ? '材料提交截止日已更新' : '材料提交截止日已清除', deadline });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
@@ -393,6 +428,46 @@ exports.deleteTeacher = async (req, res) => {
     res.json({ message: '已删除' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.batchDeleteTeachers = async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const ids = parseBatchIds(req.body.ids);
+    await conn.beginTransaction();
+    const [teachers] = await conn.query(
+      `SELECT id, employee_id, name, user_id FROM teachers WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    if (teachers.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: '未找到可删除的教师记录' });
+    }
+    const teacherIds = teachers.map(item => item.id);
+    const userIds = teachers.map(item => item.user_id).filter(Boolean);
+    await conn.query(
+      `DELETE FROM teachers WHERE id IN (${teacherIds.map(() => '?').join(',')})`,
+      teacherIds
+    );
+    if (userIds.length > 0) {
+      await conn.query(
+        `DELETE FROM users WHERE id IN (${userIds.map(() => '?').join(',')})`,
+        userIds
+      );
+    }
+    await conn.commit();
+    await auditLog(req, 'teacher.batchDelete', 'teacher', null, {
+      count: teachers.length,
+      ids: teacherIds,
+      employeeIds: teachers.map(item => item.employee_id),
+    });
+    res.json({ message: `已删除 ${teachers.length} 条教师记录`, count: teachers.length });
+  } catch (err) {
+    await conn.rollback();
+    res.status(err.statusCode || 500).json({ error: err.message });
+  } finally {
+    conn.release();
   }
 };
 
@@ -747,6 +822,30 @@ exports.deleteClassOption = async (req, res) => {
   }
 };
 
+exports.batchDeleteClassOptions = async (req, res) => {
+  try {
+    const ids = parseBatchIds(req.body.ids);
+    const [rows] = await pool.query(
+      `SELECT id, grade, major, class_name, college_id FROM class_options WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    if (rows.length === 0) return res.status(404).json({ error: '未找到可删除的专业班级记录' });
+    const existingIds = rows.map(row => row.id);
+    const [result] = await pool.query(
+      `DELETE FROM class_options WHERE id IN (${existingIds.map(() => '?').join(',')})`,
+      existingIds
+    );
+    await auditLog(req, 'classOption.batchDelete', 'class_option', null, {
+      count: result.affectedRows,
+      ids: existingIds,
+      classes: rows.map(row => `${row.grade || ''}${row.class_name || ''}`),
+    });
+    res.json({ message: `已删除 ${result.affectedRows} 条专业班级选项，学生数据未删除`, count: result.affectedRows });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+};
+
 exports.createStudent = async (req, res) => {
   try {
     const { studentId, name, grade, major, collegeId, gender, counselorName, password } = req.body;
@@ -804,6 +903,59 @@ exports.deleteStudent = async (req, res) => {
     res.json({ message: '已删除' });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.batchDeleteStudents = async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const ids = parseBatchIds(req.body.ids);
+    await conn.beginTransaction();
+    const [students] = await conn.query(
+      `SELECT id, student_id, name, user_id FROM students WHERE id IN (${ids.map(() => '?').join(',')})`,
+      ids
+    );
+    if (students.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ error: '未找到可删除的学生记录' });
+    }
+    const studentIds = students.map(item => item.id);
+    const userIds = students.map(item => item.user_id).filter(Boolean);
+    const [proofRows] = await conn.query(
+      `SELECT proof_path FROM submissions
+       WHERE student_id IN (${studentIds.map(() => '?').join(',')})
+         AND proof_path IS NOT NULL AND proof_path <> ''`,
+      studentIds
+    );
+    await conn.query(
+      `DELETE FROM students WHERE id IN (${studentIds.map(() => '?').join(',')})`,
+      studentIds
+    );
+    if (userIds.length > 0) {
+      await conn.query(
+        `DELETE FROM users WHERE id IN (${userIds.map(() => '?').join(',')})`,
+        userIds
+      );
+    }
+    await conn.commit();
+    for (const proof of proofRows) {
+      try {
+        require('../utils/upload').deleteStoredFile(proof.proof_path);
+      } catch (cleanupErr) {
+        console.error('批量删除学生后的材料图片清理失败:', cleanupErr.message);
+      }
+    }
+    await auditLog(req, 'student.batchDelete', 'student', null, {
+      count: students.length,
+      ids: studentIds,
+      studentIds: students.map(item => item.student_id),
+    });
+    res.json({ message: `已删除 ${students.length} 条学生记录`, count: students.length });
+  } catch (err) {
+    await conn.rollback();
+    res.status(err.statusCode || 500).json({ error: err.message });
+  } finally {
+    conn.release();
   }
 };
 

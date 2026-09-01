@@ -65,7 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { key: 'user-import', label: '学生与班级申请', icon: Users, category: '管理控制' },
           { key: 'excel-import', label: '负责班级成绩导入', icon: Upload, category: '管理控制' },
           { key: 'rules-view', label: '综测计分规则说明', icon: Settings, category: '规则细则' },
-          { key: 'score-export', label: '班级综测汇总导出', icon: FileSpreadsheet, category: '报表中心' }
+          { key: 'score-export', label: '班级综测汇总导出', icon: FileSpreadsheet, category: '报表中心' },
+          { key: 'archiving', label: '材料截止日管理', icon: Archive, category: '报表中心' }
         ];
 
       case 'assistant':

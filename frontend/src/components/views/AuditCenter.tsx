@@ -4,6 +4,7 @@ import { FileCheck2, CheckCircle2, XCircle, Clock, Search, Filter, Eye, AlertCir
 import confetti from 'canvas-confetti';
 import { exportMaterialAuditRecordsExcel } from '../../utils/excel';
 import { apiService } from '../../services/api';
+import { ImageLightbox } from '../common/ImageLightbox';
 
 interface AuditCenterProps {
   materials: ProofMaterial[];
@@ -27,6 +28,9 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeMaterial, setActiveMaterial] = useState<ProofMaterial | null>(null);
+  const [isProofPreviewOpen, setIsProofPreviewOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
   // Review Modal State
   const [reviewScore, setReviewScore] = useState<number>(0);
@@ -47,8 +51,25 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedIds.length === 0 || isBatchDeleting || (currentUser.role !== 'admin' && currentUser.role !== 'counselor')) return;
+    if (!window.confirm(`批量删除已选择的 ${selectedIds.length} 条材料？该操作会同时删除材料记录与证明图片，已通过材料会影响成绩。确定继续吗？`)) return;
+    setIsBatchDeleting(true);
+    try {
+      const result: any = await apiService.batchDeleteMaterials(currentUser.role as 'admin' | 'counselor', selectedIds);
+      alert(result.message || `已删除 ${result.deletedCount || 0} 条材料`);
+      setSelectedIds([]);
+      onForceDeleteMaterial?.('');
+    } catch (error: any) {
+      alert(error?.message || '批量删除失败');
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
   const openReviewModal = (mat: ProofMaterial) => {
     setActiveMaterial(mat);
+    setIsProofPreviewOpen(false);
     setReviewScore(mat.approvedScore ?? mat.requestedScore);
     setRejectReason(mat.rejectReason || '');
   };
@@ -105,6 +126,15 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
   });
 
   const pendingCount = materials.filter(m => m.status === 'pending' || m.status === 'assistant_approved').length;
+  const canBatchDelete = currentUser.role === 'admin' || currentUser.role === 'counselor';
+  const filteredIds = filteredMaterials.map(item => item.id);
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+  const toggleSelected = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => allFilteredSelected ? prev.filter(id => !filteredIds.includes(id)) : Array.from(new Set([...prev, ...filteredIds])));
+  };
 
   return (
     <div className="space-y-6">
@@ -140,6 +170,16 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>导出材料审核 Excel</span>
             </button>
+            {canBatchDelete && (
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedIds.length === 0 || isBatchDeleting}
+                className="flex w-full items-center justify-center gap-1 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-400 sm:w-auto cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isBatchDeleting ? '批量删除中...' : `批量删除${selectedIds.length ? `(${selectedIds.length})` : ''}`}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -168,6 +208,15 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full md:w-auto">
+          {canBatchDelete && (
+            <button
+              onClick={toggleSelectAll}
+              disabled={filteredMaterials.length === 0}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:w-auto"
+            >
+              {allFilteredSelected ? '取消全选' : '全选当前筛选'}
+            </button>
+          )}
           <div className="relative flex-1 md:w-64">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
             <input
@@ -209,6 +258,17 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
               className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-4"
             >
               <div>
+                {canBatchDelete && (
+                  <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(mat.id)}
+                      onChange={() => toggleSelected(mat.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                    />
+                    <span>选择此材料用于批量删除</span>
+                  </label>
+                )}
                 <div className="mb-2 flex items-start justify-between gap-2 text-xs">
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                     <span className="font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-0.5 rounded-full border border-blue-200 dark:border-blue-900">
@@ -307,7 +367,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                 </h3>
               </div>
               <button
-                onClick={() => setActiveMaterial(null)}
+                onClick={() => { setIsProofPreviewOpen(false); setActiveMaterial(null); }}
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
                 ✕
@@ -340,13 +400,14 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                 证明材料附件影印件
               </label>
               {activeMaterial.proofUrl ? (
-                <div className="relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-950 max-h-64 flex items-center justify-center">
-                  <img
-                    src={activeMaterial.proofUrl}
-                    alt="Proof Certificate"
-                    className="object-contain max-h-64 w-full"
-                  />
-                </div>
+                <ImageLightbox
+                  src={activeMaterial.proofUrl}
+                  alt={`${activeMaterial.studentName}的${activeMaterial.title}证明材料`}
+                  open={isProofPreviewOpen}
+                  onOpen={() => setIsProofPreviewOpen(true)}
+                  onClose={() => setIsProofPreviewOpen(false)}
+                  className="h-48 w-full border border-slate-200 dark:border-slate-800 sm:h-64"
+                />
               ) : (
                 <div className="p-8 text-center bg-slate-100 dark:bg-slate-800 rounded-xl text-xs text-slate-400">
                   无图片附件，提交文本说明

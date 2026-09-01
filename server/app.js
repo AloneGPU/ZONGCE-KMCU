@@ -140,7 +140,7 @@ app.get('/api/colleges', async (req, res) => {
 app.get('/api/years', async (req, res) => {
   try {
     const db = require('./config/database');
-    const [rows] = await db.query('SELECT * FROM academic_years ORDER BY name');
+    const [rows] = await db.query("SELECT * FROM academic_years WHERE name <> '2024-2025' ORDER BY name");
     res.json({ years: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });

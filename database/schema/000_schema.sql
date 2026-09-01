@@ -341,7 +341,6 @@ INSERT INTO colleges (name, code) VALUES
 
 -- 学年
 INSERT INTO academic_years (name, is_current) VALUES
-  ('2024-2025', FALSE),
   ('2025-2026', TRUE),
   ('2026-2027', FALSE);
 

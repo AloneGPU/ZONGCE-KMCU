@@ -137,15 +137,20 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   // 2. 成绩分数段分布折线/面积图数据
   const scoreDistributionData = useMemo(() => {
     const tiers = [
-      { range: '90分及以上(优秀)', min: 90, max: 100, count: 0 },
-      { range: '85-89分(良好)', min: 85, max: 89.99, count: 0 },
-      { range: '80-84分(中等)', min: 80, max: 84.99, count: 0 },
-      { range: '75-79分(合格)', min: 75, max: 79.99, count: 0 },
-      { range: '75分以下(需改进)', min: 0, max: 74.99, count: 0 },
+      { range: '<60', label: '19-59', min: 19, max: 59.99, count: 0 },
+      { range: '60-64', label: '60-64', min: 60, max: 64.99, count: 0 },
+      { range: '65-69', label: '65-69', min: 65, max: 69.99, count: 0 },
+      { range: '70-74', label: '70-74', min: 70, max: 74.99, count: 0 },
+      { range: '75-79', label: '75-79', min: 75, max: 79.99, count: 0 },
+      { range: '80-84', label: '80-84', min: 80, max: 84.99, count: 0 },
+      { range: '85-89', label: '85-89', min: 85, max: 89.99, count: 0 },
+      { range: '90-94', label: '90-94', min: 90, max: 94.99, count: 0 },
+      { range: '95-100', label: '95-100', min: 95, max: 100, count: 0 },
     ];
 
     displaySummaries.forEach(s => {
-      const found = tiers.find(t => s.totalScore >= t.min && s.totalScore <= t.max);
+      const score = Math.max(19, Math.min(100, Number(s.totalScore) || 0));
+      const found = tiers.find(t => score >= t.min && score <= t.max);
       if (found) found.count += 1;
     });
 
@@ -155,7 +160,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       runningTotal += t.count;
       const ratio = Number(((t.count / total) * 100).toFixed(1));
       const cumRatio = Number(((runningTotal / total) * 100).toFixed(1));
-      return { name: t.range, '区间人数': t.count, '占比(%)': ratio, '累计占比(%)': cumRatio };
+      return { name: t.range, label: t.label, '区间人数': t.count, '占比(%)': ratio, '累计占比(%)': cumRatio };
     });
   }, [displaySummaries]);
 
@@ -359,9 +364,9 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
               </h3>
             </div>
 
-            <div className="h-60 w-full pt-2">
+            <div className="h-72 w-full pt-2 sm:h-60">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={scoreDistributionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={scoreDistributionData} margin={{ top: 10, right: 2, left: -8, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorRatio" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#8B5CF6" stopOpacity={0.4}/>
@@ -369,14 +374,34 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" opacity={0.5} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#64748B' }} />
-                  <YAxis tick={{ fontSize: 11, fill: '#64748B' }} />
+                  <XAxis
+                    dataKey="label"
+                    interval={0}
+                    angle={-42}
+                    textAnchor="end"
+                    height={58}
+                    tick={{ fontSize: 9, fill: '#64748B' }}
+                  />
+                  <YAxis
+                    yAxisId="count"
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: '#64748B' }}
+                    label={{ value: '人数', angle: -90, position: 'insideLeft', fill: '#64748B', fontSize: 10 }}
+                  />
+                  <YAxis
+                    yAxisId="ratio"
+                    orientation="right"
+                    domain={[0, 100]}
+                    tickFormatter={value => `${value}%`}
+                    tick={{ fontSize: 10, fill: '#8B5CF6' }}
+                    label={{ value: '累计占比', angle: 90, position: 'insideRight', fill: '#8B5CF6', fontSize: 10 }}
+                  />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#0F172A', borderColor: '#334155', borderRadius: '12px', color: '#FFF', fontSize: '12px' }}
                   />
                   <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
-                  <Bar dataKey="区间人数" fill="#6366F1" radius={[4, 4, 0, 0]} barSize={18} />
-                  <Area type="monotone" dataKey="累计占比(%)" stroke="#8B5CF6" fillOpacity={1} fill="url(#colorRatio)" strokeWidth={2} />
+                  <Bar yAxisId="count" dataKey="区间人数" fill="#6366F1" radius={[4, 4, 0, 0]} barSize={18} />
+                  <Area yAxisId="ratio" type="monotone" dataKey="累计占比(%)" stroke="#8B5CF6" fillOpacity={1} fill="url(#colorRatio)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

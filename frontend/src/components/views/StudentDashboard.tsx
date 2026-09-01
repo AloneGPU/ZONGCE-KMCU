@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, StudentScoreSummary, ProofMaterial, RuleCategoryConfig, AcademicYearConfig } from '../../types';
 import { Award, Plus, FileText, CheckCircle2, Clock, XCircle, Trash2, Edit2, Download, Sparkles, TrendingUp, HelpCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { ImageLightbox } from '../common/ImageLightbox';
 
 interface StudentDashboardProps {
   currentUser: User;
@@ -29,6 +30,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   focusView = 'overview'
 }) => {
   const [materialFilter, setMaterialFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [previewMaterialId, setPreviewMaterialId] = useState<string | null>(null);
 
   const studentMaterials = materials.filter(
     m => m.studentId === currentUser.studentId && m.academicYear === activeAcademicYear
@@ -126,6 +128,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   key={mat.id}
                   className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 hover:border-blue-200 dark:hover:border-blue-800 transition-all"
                 >
+                  {mat.proofUrl && (
+                    <ImageLightbox
+                      src={mat.proofUrl}
+                      alt={`${mat.title}证明材料`}
+                      open={previewMaterialId === mat.id}
+                      onOpen={() => setPreviewMaterialId(mat.id)}
+                      onClose={() => setPreviewMaterialId(null)}
+                      className="aspect-square h-16 w-16 shrink-0 border border-slate-200 dark:border-slate-700 sm:h-20 sm:w-20"
+                    />
+                  )}
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900 rounded">
@@ -374,6 +386,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 key={mat.id}
                 className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
               >
+                {mat.proofUrl && (
+                  <ImageLightbox
+                    src={mat.proofUrl}
+                    alt={`${mat.title}证明材料`}
+                    open={previewMaterialId === mat.id}
+                    onOpen={() => setPreviewMaterialId(mat.id)}
+                    onClose={() => setPreviewMaterialId(null)}
+                    className="aspect-square h-16 w-16 shrink-0 border border-slate-200 dark:border-slate-700 sm:h-20 sm:w-20"
+                  />
+                )}
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 rounded">

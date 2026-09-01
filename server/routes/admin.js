@@ -20,6 +20,7 @@ router.use('/dashboard', authenticate, requireRole('admin'));
 router.use('/years', authenticate, requireRole('admin'));
 router.get('/years', userCtrl.getYears);
 router.post('/years', userCtrl.createYear);
+router.put('/years/:id/deadline', userCtrl.updateYearDeadline);
 router.put('/years/:id/lock', userCtrl.toggleYearLock);
 router.put('/years/:id/activate', userCtrl.activateYear);
 router.delete('/years/:id', userCtrl.deleteYear);
@@ -30,6 +31,7 @@ router.get('/colleges', authenticate, userCtrl.getColleges);
 // 教师管理 → 查看(admin+counselor)，增删(admin)
 router.get('/teachers', authenticate, requireRole('admin', 'counselor'), userCtrl.getTeachers);
 router.post('/teachers', authenticate, requireRole('admin'), userCtrl.createTeacher);
+router.post('/teachers/batch-delete', authenticate, requireRole('admin'), userCtrl.batchDeleteTeachers);
 router.put('/teachers/:id', authenticate, requireRole('admin'), userCtrl.updateTeacher);
 router.delete('/teachers/:id', authenticate, requireRole('admin'), userCtrl.deleteTeacher);
 router.post('/teachers/import', authenticate, requireRole('admin'), userCtrl.importTeachers);
@@ -39,6 +41,7 @@ router.put('/teachers/:id/grade', authenticate, requireRole('admin'), userCtrl.u
 // 学生管理 → 查看(admin+counselor)，增删(admin)
 router.get('/students', authenticate, requireRole('admin', 'counselor'), userCtrl.getStudents);
 router.post('/students', authenticate, requireRole('admin'), userCtrl.createStudent);
+router.post('/students/batch-delete', authenticate, requireRole('admin'), userCtrl.batchDeleteStudents);
 router.delete('/students/:id', authenticate, requireRole('admin'), userCtrl.deleteStudent);
 router.post('/students/import', authenticate, requireRole('admin'), userCtrl.importStudents);
 
@@ -46,6 +49,7 @@ router.post('/students/import', authenticate, requireRole('admin'), userCtrl.imp
 router.get('/stats', authenticate, requireRole('admin', 'counselor'), userCtrl.getStudentStats);
 router.get('/class-options', authenticate, requireRole('admin'), userCtrl.getClassOptions);
 router.post('/class-options', authenticate, requireRole('admin'), userCtrl.createClassOption);
+router.post('/class-options/batch-delete', authenticate, requireRole('admin'), userCtrl.batchDeleteClassOptions);
 router.post('/class-options/import', authenticate, requireRole('admin'), userCtrl.importClassOptions);
 router.put('/class-options/:id', authenticate, requireRole('admin'), userCtrl.updateClassOption);
 router.put('/class-options/:id/counselor', authenticate, requireRole('admin'), userCtrl.assignClassOptionCounselor);
@@ -77,6 +81,7 @@ router.get('/colleges-classes', authenticate, requireRole('admin', 'counselor'),
 // 全院实时排名 → 管理员专属
 router.get('/scores', authenticate, requireRole('admin'), submissionCtrl.getAllScores);
 router.post('/scores/import', authenticate, requireRole('admin'), submissionCtrl.importScores);
+router.post('/scores/moral-deductions/import', authenticate, requireRole('admin'), submissionCtrl.importMoralDeductions);
 
 // 评分规则 → 查看(admin+counselor)，修改(admin)
 router.get('/rules', authenticate, scoringCtrl.getRules);
@@ -101,6 +106,7 @@ router.get('/export/proofs', authenticate, requireRole('admin'), exportCtrl.expo
 router.get('/proofs/check', authenticate, requireRole('admin'), exportCtrl.checkProofFileConsistency);
 router.post('/proofs/cleanup', authenticate, requireRole('admin'), exportCtrl.cleanupOrphanProofFiles);
 router.delete('/submissions/:id', authenticate, requireRole('admin'), submissionCtrl.adminDeleteSubmission);
+router.post('/submissions/batch-delete', authenticate, requireRole('admin'), submissionCtrl.batchDeleteSubmissions);
 router.get('/review', authenticate, requireRole('admin'), submissionCtrl.getReviewList);
 
 // 综合测评登分表导出 → 管理员专属；辅导员走 /api/counselor/export/score-table

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { AcademicYearConfig } from '../../types';
+import { AcademicYearConfig, User } from '../../types';
 import { apiService } from '../../services/api';
-import { Calendar, Plus, Lock, LockOpen, CheckCircle2, ShieldCheck, Archive } from 'lucide-react';
+import { Calendar, Plus, Lock, CheckCircle2, Archive } from 'lucide-react';
 
 interface AcademicYearArchivingProps {
   academicYears: AcademicYearConfig[];
@@ -9,6 +9,7 @@ interface AcademicYearArchivingProps {
   onSelectActiveYear: (year: string) => void;
   onUpdateAcademicYears: (years: AcademicYearConfig[]) => void;
   isAdmin: boolean;
+  currentUser: User;
 }
 
 export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
@@ -16,11 +17,34 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
   activeAcademicYear,
   onSelectActiveYear,
   onUpdateAcademicYears,
-  isAdmin
+  isAdmin,
+  currentUser
 }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newYearName, setNewYearName] = useState('2027-2028');
   const [newDeadline, setNewDeadline] = useState('2028-09-30');
+  const [savingDeadlineId, setSavingDeadlineId] = useState<number | null>(null);
+  const [deadlineDrafts, setDeadlineDrafts] = useState<Record<number, string>>({});
+
+  const handleDeadlineChange = async (item: AcademicYearConfig, deadline: string) => {
+    if (!item.id || savingDeadlineId !== null) return;
+    setSavingDeadlineId(item.id);
+    try {
+      await apiService.updateYearDeadline(currentUser.role as 'admin' | 'counselor', item.id, deadline);
+      onUpdateAcademicYears(academicYears.map(year =>
+        year.id === item.id ? { ...year, deadline: deadline || undefined } : year
+      ));
+      setDeadlineDrafts(current => {
+        const next = { ...current };
+        delete next[item.id as number];
+        return next;
+      });
+    } catch (err: any) {
+      alert(err?.message || '材料提交截止日更新失败');
+    } finally {
+      setSavingDeadlineId(null);
+    }
+  };
 
   const handleToggleLockYear = async (yearStr: string) => {
     if (!isAdmin) return;
@@ -89,7 +113,7 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
               <span className="min-w-0">学年跨度管理与综测数据归档锁死</span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              设定系统活跃申报学年（如 2025-2026学年），可增加新学年。归档封存历史学年后，对应年度的所有成绩、排名及审核记录将被永久锁定保护。
+              管理员可新增、切换和归档学年；管理员与辅导员均可自定义各学年的材料提交截止日。
             </p>
           </div>
 
@@ -125,23 +149,41 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
                     <span className="min-w-0 truncate text-base font-bold">{item.year} 学年</span>
                   </div>
 
-                  {item.isLocked ? (
+                  {item.isLocked && (
                     <span className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/20 px-2.5 py-1 text-[10px] font-bold text-rose-300">
                       <Lock className="w-3 h-3" />
                       <span>已被归档锁死</span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/20 px-2.5 py-1 text-[10px] font-bold text-emerald-300">
-                      <LockOpen className="w-3 h-3" />
-                      <span>开放申报/修改</span>
                     </span>
                   )}
                 </div>
 
                 <div className="space-y-2 text-xs opacity-80 mb-6">
-                  <div className="flex justify-between">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <span>材料提交截止日:</span>
-                    <span className="font-mono">{item.deadline || '2026-09-30'}</span>
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
+                      <input
+                        type="date"
+                        value={item.id !== undefined && Object.prototype.hasOwnProperty.call(deadlineDrafts, item.id)
+                          ? deadlineDrafts[item.id]
+                          : item.deadline || ''}
+                        onChange={event => item.id !== undefined && setDeadlineDrafts(current => ({
+                          ...current,
+                          [item.id as number]: event.target.value
+                        }))}
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/70 px-2 py-1 font-mono text-[11px] text-slate-700 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200 sm:w-36 sm:flex-none"
+                        aria-label={`${item.year}材料提交截止日`}
+                      />
+                      <button
+                        type="button"
+                        disabled={savingDeadlineId === item.id}
+                        onClick={() => handleDeadlineChange(item, item.id !== undefined && Object.prototype.hasOwnProperty.call(deadlineDrafts, item.id)
+                          ? deadlineDrafts[item.id]
+                          : item.deadline || '')}
+                        className="shrink-0 rounded-lg bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        {savingDeadlineId === item.id ? '保存中' : '保存'}
+                      </button>
+                    </div>
                   </div>
                   <div className="flex justify-between">
                     <span>状态标识:</span>
