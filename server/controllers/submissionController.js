@@ -7,12 +7,27 @@ const { getCurrentYearId } = require('../utils/year');
 const auditLog = require('../utils/audit');
 const { resolveManagedClassScope, canonicalizeClassNames, normalizeClassName, normalizeGrade } = require('../utils/className');
 const { assignPendingForClass } = require('../utils/reviewAssignment');
+const { getProofFiles, serializeProofFiles } = require('../utils/proofFiles');
+const { assignDenseRanks } = require('../utils/ranking');
 
-function cleanupIncomingFile(file) {
-  if (!file || !file.path) return;
-  try {
-    require('fs').unlinkSync(file.path);
-  } catch (e) { /* ignore cleanup errors */ }
+function cleanupIncomingFiles(files) {
+  for (const file of Array.isArray(files) ? files : [files]) {
+    if (!file || !file.path) continue;
+    try {
+      require('fs').unlinkSync(file.path);
+    } catch (e) { /* ignore cleanup errors */ }
+  }
+}
+
+function cleanupStoredProofFiles(submission) {
+  const { deleteStoredFile } = require('../utils/upload');
+  for (const file of getProofFiles(submission)) {
+    try {
+      deleteStoredFile(file.path);
+    } catch (cleanupErr) {
+      console.error('材料图片清理失败:', cleanupErr.message);
+    }
+  }
 }
 
 // 归档锁定的学年拒绝一切数据变更（提交/修改/删除/审核/成绩导入）
@@ -47,7 +62,15 @@ async function assertCanReviewSubmission(req, submission) {
   if (req.studentInfo && req.studentInfo.is_assistant) {
     const sameClass = normalizeClassName(req.studentInfo.class_name) === normalizeClassName(submission.class_name);
     const sameGrade = normalizeGrade(req.studentInfo.grade) === normalizeGrade(submission.grade);
+    let hasExtraScope = false;
     if (!sameClass || !sameGrade) {
+      const [scopeRows] = await pool.query(
+        'SELECT id FROM assistant_review_scopes WHERE user_id = ? AND class_name = ? AND grade = ? LIMIT 1',
+        [req.user.userId, submission.class_name, submission.grade]
+      );
+      hasExtraScope = scopeRows.length > 0;
+    }
+    if ((!sameClass || !sameGrade) && !hasExtraScope) {
       const error = new Error('无权审核其他班级或年级的材料');
       error.statusCode = 403;
       throw error;
@@ -73,6 +96,15 @@ async function assertCanReviewSubmission(req, submission) {
     return 'counselor';
   }
 
+  if (req.user.role === 'admin' || req.user.role === 'college_admin') {
+    if (req.user.role === 'college_admin' && Number(req.user.collegeId) !== Number(submission.college_id)) {
+      const error = new Error('无权审核其他学院的材料');
+      error.statusCode = 403;
+      throw error;
+    }
+    return 'admin';
+  }
+
   const error = new Error('当前角色不参与材料审核');
   error.statusCode = 403;
   throw error;
@@ -80,11 +112,11 @@ async function assertCanReviewSubmission(req, submission) {
 
 // ==================== 学生提交材料 ====================
 exports.create = async (req, res) => {
-  let finalizedProofPath = '';
+  let finalizedProofPaths = [];
   try {
     const student = await Student.findByUserId(req.user.userId);
     if (!student) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(404).json({ error: '未找到学生信息' });
     }
 
@@ -93,11 +125,11 @@ exports.create = async (req, res) => {
     const awardMonth = String(req.body.award_month || req.body.awardMonth || '').trim();
     let academicYearId = req.body.academicYearId;
     if (!moduleId || !itemId) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '请选择加分项' });
     }
     if (awardMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(awardMonth)) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '奖项获得时间格式不正确，请选择到月份' });
     }
 
@@ -120,25 +152,25 @@ exports.create = async (req, res) => {
        WHERE si.id = ? AND si.module_id = ?`, [itemId, moduleId]
     );
     if (itemRows.length === 0) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '该加分项不存在' });
     }
     const item = itemRows[0];
     if (!item.requires_proof || item.requires_proof === 0) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '此项为考试成绩类，由教师统一导入，学生无需提交' });
     }
 
     // 使用规则表中预设的固定分值，支持次数倍增
     const rawCount = req.body.count === undefined || req.body.count === '' ? 1 : Number(req.body.count);
     if (!Number.isInteger(rawCount) || rawCount < 1 || rawCount > 100) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '申报次数必须是 1 至 100 的整数' });
     }
     const count = rawCount;
     const submittedScore = (parseFloat(item.max_score) || 0) * count;
     if (submittedScore <= 0) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '该加分项未配置分值，请联系管理员' });
     }
 
@@ -150,12 +182,22 @@ exports.create = async (req, res) => {
     const yearName = yearRows[0] ? yearRows[0].name : 'unknown';
 
     // 处理上传图片。最终文件名由服务端根据学生、加分模块和分值生成，避免前端伪造。
-    if (!req.file) {
+    const files = Array.isArray(req.files) ? req.files : [];
+    const totalSize = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    if (files.length === 0) {
       return res.status(400).json({ error: '请上传证明图片，仅支持 JPG/PNG/GIF，大小不超过 10MB' });
+    }
+    if (files.length > 10) {
+      cleanupIncomingFiles(files);
+      return res.status(400).json({ error: '单次最多上传 10 张图片' });
+    }
+    if (totalSize > 10 * 1024 * 1024) {
+      cleanupIncomingFiles(files);
+      return res.status(400).json({ error: '图片总大小不能超过 10MB' });
     }
     const studentProofName = String(req.body.proof_name || '').trim();
     if (!studentProofName) {
-      cleanupIncomingFile(req.file);
+      cleanupIncomingFiles(files);
       return res.status(400).json({ error: '请填写证明图片名称' });
     }
 
@@ -163,33 +205,33 @@ exports.create = async (req, res) => {
     const fs = require('fs');
     const { moveToFinalDir, validateMagicNumber, sanitizeFilePart, getUploadRoot } = require('../utils/upload');
     const extByMime = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' };
-    const ext = extByMime[req.file.mimetype] || path.extname(req.file.originalname).toLowerCase() || '.jpg';
     const customName = sanitizeFilePart(path.basename(studentProofName, path.extname(studentProofName)), '证明材料');
     const moduleLabel = String(item.module_name || '加分项').endsWith('类') ? item.module_name : `${item.module_name || '加分项'}类`;
     const scoreText = Number.isInteger(submittedScore) ? String(submittedScore) : submittedScore.toFixed(1).replace(/\.0$/, '');
-    const finalFilename = [
-      sanitizeFilePart(student.student_id, '学号'),
-      sanitizeFilePart(student.name, '姓名'),
-      sanitizeFilePart(moduleLabel, '加分类'),
-      sanitizeFilePart(`${scoreText}分`, '分值'),
-      customName
-    ].join('_') + ext;
-
-    let proofFilename = finalFilename;
-    let proofPath = '';
-    const moved = moveToFinalDir(req.file.filename, yearName, student.student_id, finalFilename);
-    proofPath = moved.proofPath;
-    proofFilename = moved.filename;
-    finalizedProofPath = proofPath;
-
-    // 文件写入后再校验 magic number（不能提前验，否则 stream 数据丢失）
-    const fullPath = path.join(getUploadRoot(), proofPath);
-    const valid = validateMagicNumber(fullPath, req.file.mimetype);
-    if (!valid) {
-      fs.unlinkSync(fullPath);
-      finalizedProofPath = '';
-      return res.status(400).json({ error: '文件类型与实际内容不符，请上传真实图片' });
+    const proofFiles = [];
+    for (const [index, file] of files.entries()) {
+      const ext = extByMime[file.mimetype] || path.extname(file.originalname).toLowerCase() || '.jpg';
+      const suffix = files.length > 1 ? `_${index + 1}` : '';
+      const finalFilename = [
+        sanitizeFilePart(student.student_id, '学号'),
+        sanitizeFilePart(student.name, '姓名'),
+        sanitizeFilePart(moduleLabel, '加分类'),
+        sanitizeFilePart(`${scoreText}分`, '分值'),
+        customName + suffix
+      ].join('_') + ext;
+      const moved = moveToFinalDir(file.filename, yearName, student.student_id, finalFilename);
+      const fullPath = path.join(getUploadRoot(), moved.proofPath);
+      if (!validateMagicNumber(fullPath, file.mimetype)) {
+        fs.unlinkSync(fullPath);
+        cleanupStoredProofFiles({ proofFiles: serializeProofFiles(proofFiles) });
+        finalizedProofPaths = [];
+        return res.status(400).json({ error: '文件类型与实际内容不符，请上传真实图片' });
+      }
+      proofFiles.push({ path: moved.proofPath, filename: moved.filename });
+      finalizedProofPaths.push(moved.proofPath);
     }
+    const proofFilename = proofFiles[0].filename;
+    const proofPath = proofFiles[0].path;
 
     const sub = await Submission.create({
       studentId: student.id,
@@ -200,6 +242,7 @@ exports.create = async (req, res) => {
       awardMonth,
       proofFilename,
       proofPath,
+      proofFiles: serializeProofFiles(proofFiles),
       initialStatus: student.is_assistant ? 'assistant_approved' : 'pending',
     });
 
@@ -212,13 +255,13 @@ exports.create = async (req, res) => {
     }
 
     await auditLog(req, 'submission.create', 'submission', sub.id, { studentId: student.id, yearId, moduleId, itemId, score: submittedScore });
-    finalizedProofPath = '';
+    finalizedProofPaths = [];
     res.status(201).json({ submission: sub });
   } catch (err) {
-    cleanupIncomingFile(req.file);
-    if (finalizedProofPath) {
+    cleanupIncomingFiles(req.files);
+    for (const proofPath of finalizedProofPaths) {
       try {
-        require('../utils/upload').deleteStoredFile(finalizedProofPath);
+        require('../utils/upload').deleteStoredFile(proofPath);
       } catch (cleanupErr) {
         console.error('提交失败后的材料文件清理失败:', cleanupErr.message);
       }
@@ -239,7 +282,68 @@ exports.getMySubmissions = async (req, res) => {
   }
 };
 
+async function buildProofFilesFromUpload({ files, proofName, yearName, student, moduleName, score, oldProofFiles = [] }) {
+  const path = require('path');
+  const fs = require('fs');
+  const { moveToFinalDir, validateMagicNumber, sanitizeFilePart, getUploadRoot } = require('../utils/upload');
+  const extByMime = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' };
+  const finalizedProofPaths = [];
+  const proofFiles = [];
+
+  if (!Array.isArray(files) || files.length === 0) {
+    return { proofFiles: oldProofFiles, finalizedProofPaths };
+  }
+  if (files.length > 10) {
+    cleanupIncomingFiles(files);
+    const error = new Error('单次最多上传 10 张图片');
+    error.statusCode = 400;
+    throw error;
+  }
+  const totalSize = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+  if (totalSize > 10 * 1024 * 1024) {
+    cleanupIncomingFiles(files);
+    const error = new Error('图片总大小不能超过 10MB');
+    error.statusCode = 400;
+    throw error;
+  }
+  const studentProofName = String(proofName || '').trim();
+  if (!studentProofName) {
+    cleanupIncomingFiles(files);
+    const error = new Error('请填写证明图片名称');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const customName = sanitizeFilePart(path.basename(studentProofName, path.extname(studentProofName)), '证明材料');
+  const moduleLabel = String(moduleName || '加分项').endsWith('类') ? moduleName : `${moduleName || '加分项'}类`;
+  const scoreText = Number.isInteger(score) ? String(score) : String(score);
+  for (const [index, file] of files.entries()) {
+    const ext = extByMime[file.mimetype] || path.extname(file.originalname).toLowerCase() || '.jpg';
+    const suffix = files.length > 1 ? `_${index + 1}` : '';
+    const finalFilename = [
+      sanitizeFilePart(student.student_id, '学号'),
+      sanitizeFilePart(student.name, '姓名'),
+      sanitizeFilePart(moduleLabel, '加分类'),
+      sanitizeFilePart(`${scoreText}分`, '分值'),
+      customName + suffix
+    ].join('_') + ext;
+    const moved = moveToFinalDir(file.filename, yearName, student.student_id, finalFilename);
+    const fullPath = path.join(getUploadRoot(), moved.proofPath);
+    if (!validateMagicNumber(fullPath, file.mimetype)) {
+      fs.unlinkSync(fullPath);
+      cleanupStoredProofFiles({ proof_files: serializeProofFiles(proofFiles) });
+      const error = new Error('文件类型与实际内容不符，请上传真实图片');
+      error.statusCode = 400;
+      throw error;
+    }
+    proofFiles.push({ path: moved.proofPath, filename: moved.filename });
+    finalizedProofPaths.push(moved.proofPath);
+  }
+  return { proofFiles, finalizedProofPaths };
+}
+
 exports.updateMySubmission = async (req, res) => {
+  let finalizedProofPaths = [];
   try {
     const student = await Student.findByUserId(req.user.userId);
     if (!student) return res.status(404).json({ error: '未找到学生信息' });
@@ -248,9 +352,9 @@ exports.updateMySubmission = async (req, res) => {
     const sub = await Submission.findByIdForStudent(req.params.id, student.id);
     if (!sub) return res.status(404).json({ error: '提交记录不存在' });
     await assertYearNotLocked(sub.academic_year_id);
-    // pending 和 rejected 的可以修改
-    if (sub.status !== 'pending' && sub.status !== 'rejected') {
-      return res.status(400).json({ error: '只能修改待审核或被驳回的提交' });
+    if (sub.status !== 'rejected') {
+      cleanupIncomingFiles(req.files);
+      return res.status(400).json({ error: '只能修改被驳回的提交' });
     }
 
     const description = String(req.body.description || '无').trim() || '无';
@@ -258,16 +362,107 @@ exports.updateMySubmission = async (req, res) => {
       ? String(req.body.award_month || req.body.awardMonth || '').trim()
       : undefined;
     if (awardMonth && !/^\d{4}-(0[1-9]|1[0-2])$/.test(awardMonth)) {
+      cleanupIncomingFiles(req.files);
       return res.status(400).json({ error: '奖项获得时间格式不正确，请选择到月份' });
     }
-    // 如果是被驳回的，修改后重置为 pending
-    const newStatus = sub.status === 'rejected' ? 'pending' : undefined;
-    const updates = { description, status: newStatus };
+
+    const nextModuleId = req.body.moduleId || req.body.module_id || sub.module_id;
+    const nextItemId = req.body.itemId || req.body.item_id || sub.item_id;
+    const [itemRows] = await pool.query(
+      `SELECT si.*, sm.name as module_name
+       FROM scoring_items si
+       JOIN scoring_modules sm ON si.module_id = sm.id
+       WHERE si.id = ? AND si.module_id = ?`,
+      [nextItemId, nextModuleId]
+    );
+    if (itemRows.length === 0) {
+      cleanupIncomingFiles(req.files);
+      return res.status(400).json({ error: '该加分项不存在' });
+    }
+    const item = itemRows[0];
+    if (!item.requires_proof || item.requires_proof === 0) {
+      cleanupIncomingFiles(req.files);
+      return res.status(400).json({ error: '此项为考试成绩类，由教师统一导入，学生无需提交' });
+    }
+    const rawCount = req.body.count === undefined || req.body.count === '' ? 1 : Number(req.body.count);
+    if (!Number.isInteger(rawCount) || rawCount < 1 || rawCount > 100) {
+      cleanupIncomingFiles(req.files);
+      return res.status(400).json({ error: '申报次数必须是 1 至 100 的整数' });
+    }
+    const nextScore = (parseFloat(item.max_score) || 0) * rawCount;
+    if (nextScore <= 0) {
+      cleanupIncomingFiles(req.files);
+      return res.status(400).json({ error: '该加分项未配置分值，请联系管理员' });
+    }
+
+    const yearId = await getCurrentYearId(sub.academic_year_id);
+    await assertSubmissionDeadline(yearId);
+    const [yearRows] = await pool.query('SELECT name FROM academic_years WHERE id = ?', [yearId]);
+    const yearName = yearRows[0] ? yearRows[0].name : 'unknown';
+    const files = Array.isArray(req.files) ? req.files : [];
+    const oldProofFiles = getProofFiles(sub);
+    const proofResult = await buildProofFilesFromUpload({
+      files,
+      proofName: req.body.proof_name,
+      yearName,
+      student,
+      moduleName: item.module_name,
+      score: nextScore,
+      oldProofFiles,
+    });
+    finalizedProofPaths = proofResult.finalizedProofPaths;
+
+    const updates = {
+      module_id: nextModuleId,
+      item_id: nextItemId,
+      score: nextScore,
+      description,
+      status: 'pending',
+      rejection_reason: null,
+      assistant_assignee_id: null,
+      assistant_reviewer_id: null,
+      assistant_review_at: null,
+      counselor_reviewer_id: null,
+      counselor_review_at: null,
+    };
     if (awardMonth !== undefined) updates.award_month = awardMonth || null;
-    await Submission.update(req.params.id, updates);
-    await auditLog(req, 'submission.update', 'submission', req.params.id, { description, awardMonth });
-    res.json({ message: '已更新' + (newStatus ? '，已重新提交审核' : '') });
+    if (files.length > 0) {
+      updates.proof_filename = proofResult.proofFiles[0].filename;
+      updates.proof_path = proofResult.proofFiles[0].path;
+      updates.proof_files = serializeProofFiles(proofResult.proofFiles);
+    }
+
+    const affectedRows = await Submission.update(req.params.id, updates, ['rejected']);
+    if (affectedRows !== 1) {
+      const error = new Error('材料状态已变化，请刷新后重试');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (files.length > 0) cleanupStoredProofFiles({ proof_files: serializeProofFiles(oldProofFiles) });
+    try {
+      await assignPendingForClass(student.class_name, student.grade);
+    } catch (assignErr) {
+      console.error('材料重新提交后的班委评审任务分配失败:', assignErr.message);
+    }
+    await auditLog(req, 'submission.update', 'submission', req.params.id, {
+      description,
+      awardMonth,
+      moduleId: nextModuleId,
+      itemId: nextItemId,
+      score: nextScore,
+      replacedProofs: files.length > 0,
+    });
+    finalizedProofPaths = [];
+    res.json({ message: '已更新，已重新提交审核' });
   } catch (err) {
+    cleanupIncomingFiles(req.files);
+    for (const proofPath of finalizedProofPaths) {
+      try {
+        require('../utils/upload').deleteStoredFile(proofPath);
+      } catch (cleanupErr) {
+        console.error('修改失败后的材料文件清理失败:', cleanupErr.message);
+      }
+    }
     res.status(err.statusCode || 500).json({ error: err.message });
   }
 };
@@ -288,13 +483,7 @@ exports.deleteMySubmission = async (req, res) => {
     await Submission.delete(req.params.id);
     // 物理删除本人材料文件，避免已删材料在磁盘上残留；
     // deleteStoredFile 内部经 resolveStoredFile 限定在 UPLOAD_ROOT 内，删除失败不影响结果。
-    if (sub.proof_path) {
-      try {
-        require('../utils/upload').deleteStoredFile(sub.proof_path);
-      } catch (cleanupErr) {
-        console.error('材料记录已删除，但图片文件清理失败:', cleanupErr.message);
-      }
-    }
+    cleanupStoredProofFiles(sub);
     await auditLog(req, 'submission.delete', 'submission', req.params.id, { studentId: student.id });
     res.json({ message: '已删除' });
   } catch (err) {
@@ -308,16 +497,13 @@ exports.adminDeleteSubmission = async (req, res) => {
   try {
     const sub = await Submission.findById(req.params.id);
     if (!sub) return res.status(404).json({ error: '提交记录不存在' });
+    if (req.user.role === 'college_admin' && Number(sub.college_id) !== Number(req.user.collegeId)) {
+      return res.status(403).json({ error: '只能删除本学院的材料' });
+    }
     await assertYearNotLocked(sub.academic_year_id);
 
     await Submission.delete(sub.id);
-    if (sub.proof_path) {
-      try {
-        require('../utils/upload').deleteStoredFile(sub.proof_path);
-      } catch (cleanupErr) {
-        console.error('管理员删除材料后图片清理失败:', cleanupErr.message);
-      }
-    }
+    cleanupStoredProofFiles(sub);
     await auditLog(req, 'submission.admin_delete', 'submission', sub.id, {
       studentId: sub.student_id, status: sub.status,
     });
@@ -352,13 +538,7 @@ exports.counselorDeleteSubmission = async (req, res) => {
     if (!allowed) return res.status(403).json({ error: '该材料不属于当前负责的班级，无权删除' });
 
     await Submission.delete(sub.id);
-    if (sub.proof_path) {
-      try {
-        require('../utils/upload').deleteStoredFile(sub.proof_path);
-      } catch (cleanupErr) {
-        console.error('辅导员删除材料后图片清理失败:', cleanupErr.message);
-      }
-    }
+    cleanupStoredProofFiles(sub);
     await auditLog(req, 'submission.counselor_delete', 'submission', sub.id, {
       studentId: sub.student_id, status: sub.status,
     });
@@ -376,6 +556,11 @@ async function assertCanDeleteSubmission(req, sub, counselorScope) {
     return { ok: false, reason: err.message };
   }
   if (req.user.role === 'admin') return { ok: true };
+  if (req.user.role === 'college_admin') {
+    return Number(sub.college_id) === Number(req.user.collegeId)
+      ? { ok: true }
+      : { ok: false, reason: '该材料不属于当前学院' };
+  }
 
   if (req.user.role !== 'counselor') return { ok: false, reason: '无权删除材料' };
   if (!counselorScope || counselorScope.classNames.length === 0) {
@@ -416,13 +601,7 @@ exports.batchDeleteSubmissions = async (req, res) => {
       }
 
       await Submission.delete(id);
-      if (sub.proof_path) {
-        try {
-          require('../utils/upload').deleteStoredFile(sub.proof_path);
-        } catch (cleanupErr) {
-          skipped.push({ id, reason: '材料记录已删除，但图片清理失败: ' + cleanupErr.message });
-        }
-      }
+      cleanupStoredProofFiles(sub);
       deleted.push(id);
     }
 
@@ -452,8 +631,9 @@ exports.getReviewList = async (req, res) => {
 
     let subs;
 
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'college_admin') {
       subs = await Submission.findByYear(yearIdNum);
+      if (role === 'college_admin') subs = subs.filter(item => Number(item.college_id) === Number(req.user.collegeId));
     } else if (role === 'counselor') {
       const teacher = await Teacher.findByUserId(req.user.userId);
       if (!teacher) return res.status(404).json({ error: '未找到教师信息' });
@@ -472,6 +652,12 @@ exports.getReviewList = async (req, res) => {
       const assistantGrade = req.studentInfo && req.studentInfo.grade;
       await assignPendingForClass(className, assistantGrade);
       subs = await Submission.findPendingByClass(className, yearIdNum, assistantGrade, req.user.userId);
+      const [scopes] = await pool.query('SELECT class_name, grade FROM assistant_review_scopes WHERE user_id = ?', [req.user.userId]);
+      for (const scope of scopes) {
+        await assignPendingForClass(scope.class_name, scope.grade);
+        const extra = await Submission.findPendingByClass(scope.class_name, yearIdNum, scope.grade, req.user.userId);
+        subs = subs.concat(extra);
+      }
     }
 
     // 辅导员：始终隐藏有助理班级中 pending 状态的材料（必须等班委先审）
@@ -491,7 +677,7 @@ exports.getReviewList = async (req, res) => {
 
     // 按前端 status 参数做二次筛选
     if (status === 'pending') {
-      if (role === 'admin') {
+      if (role === 'admin' || role === 'college_admin') {
         subs = subs.filter(s => s.status === 'pending' || s.status === 'assistant_approved');
       } else if (role === 'counselor') {
         subs = subs.filter(s => s.status === 'pending' || s.status === 'assistant_approved');
@@ -510,16 +696,16 @@ exports.getReviewList = async (req, res) => {
 
 exports.review = async (req, res) => {
   try {
-    const { action, reason } = req.body; // 'approve' | 'reject'
+    const { action, reason, score } = req.body; // 'approve' | 'reject'
     const subId = req.params.id;
 
     const submission = await Submission.findById(subId);
     await assertYearNotLocked(submission.academic_year_id);
-    const reviewerRole = await assertCanReviewSubmission(req, submission);
+      const reviewerRole = await assertCanReviewSubmission(req, submission);
 
     if (action === 'approve') {
-      const approved = await Submission.approve(subId, reviewerRole, req.user.userId);
-      await auditLog(req, 'submission.approve', 'submission', subId, { status: approved.status });
+      const approved = await Submission.approve(subId, reviewerRole, req.user.userId, score);
+      await auditLog(req, 'submission.approve', 'submission', subId, { status: approved.status, score: approved.score });
       const statusText = approved.status === 'assistant_approved'
         ? '班委已审核通过，等待辅导员终审'
         : '审核全部通过';
@@ -566,20 +752,29 @@ exports.getMyScores = async (req, res) => {
       const breakdown = await Score.calcModuleBreakdown(student.id, yearId, mod.id);
       const modItems = itemRows.filter(i => i.module_id === mod.id);
       const baseScore = Score.moduleBaseScore(mod.id);
+      const finalScore = breakdown.total + baseScore;
       moduleScores.push({
         ...mod,
         score: breakdown.total,
         approvedScore: breakdown.approvedScore,
         importedScore: breakdown.importedScore,
         baseScore,
-        finalScore: breakdown.total + baseScore,
+        finalScore,
+        weightedScore: Score.calculateWeightedScore(finalScore, mod.weight),
         items: modItems,
       });
     }
 
     const totalScore = await Score.calcTotalScore(student.id, yearId);
-    const rankings = await Score.getRankings(yearId, student.class_name, student.grade);
+    const rankings = await Score.getRankings(yearId, student.class_name, student.grade, student.college_id);
     const myRank = rankings.find(r => r.studentId == student.id);
+    const gradeRankings = await Score.getRankings(yearId, null, student.grade, student.college_id);
+    assignDenseRanks(gradeRankings, 'totalScore', 'gradeRank', row => row.studentCode);
+    const myGradeRank = gradeRankings.find(r => r.studentId == student.id);
+    const moduleRankById = new Map((myRank?.modules || []).map(module => [Number(module.moduleId), module.rank]));
+    moduleScores.forEach(module => {
+      module.rank = moduleRankById.get(Number(module.id)) ?? null;
+    });
 
     // 同时返回导入成绩明细（让前端能精确展示）
     const [importedRows] = await pool.query(
@@ -596,6 +791,8 @@ exports.getMyScores = async (req, res) => {
       totalScore,
       rank: myRank ? myRank.rank : null,
       totalInClass: rankings.length,
+      gradeRank: myGradeRank ? myGradeRank.gradeRank : null,
+      totalInGrade: gradeRankings.length,
       moduleScores,
       importedScores: importedRows,
       rankings: rankings.slice(0, 10),
@@ -640,23 +837,26 @@ exports.getClassScores = async (req, res) => {
       return res.json({ className: '', classNames: [], yearId, rankings: [], message: '未配置负责班级，请联系管理员在教师管理中为辅导员分配班级' });
     }
     const allowedKeys = new Set(classNames.map(normalizeClassName));
-    const allRankings = await Score.getRankings(yearId);
-    const scopedRankings = allRankings.filter(item =>
-      allowedKeys.has(normalizeClassName(item.className)) &&
-      (!teacherGrade || normalizeGrade(item.grade) === normalizeGrade(teacherGrade))
-    );
 
-    if (!req.query.className) {
-      return res.json({ className: '', classNames, yearId, rankings: scopedRankings });
+    if (req.query.className) {
+      const requested = String(req.query.className);
+      const [className] = await canonicalizeClassNames(pool, [requested]);
+      if (!allowedKeys.has(normalizeClassName(className))) {
+        return res.status(403).json({ error: '无权查看该班级成绩' });
+      }
+      const rankings = await Score.getRankings(yearId, className, teacherGrade);
+      return res.json({ className, classNames, yearId, rankings });
     }
 
-    const requested = String(req.query.className);
-    const [className] = await canonicalizeClassNames(pool, [requested]);
-    if (!allowedKeys.has(normalizeClassName(className))) {
-      return res.status(403).json({ error: '无权查看该班级成绩' });
-    }
-    const rankings = scopedRankings.filter(item => normalizeClassName(item.className) === normalizeClassName(className));
-    res.json({ className, classNames, yearId, rankings });
+    // Each class is ranked independently, including all six module rankings.
+    // Combining the results only affects display order, never the rank values.
+    const rankingGroups = await Promise.all(classNames.map(className =>
+      Score.getRankings(yearId, className, teacherGrade)
+    ));
+    const rankings = rankingGroups
+      .flat()
+      .sort((a, b) => b.totalScore - a.totalScore || String(a.studentCode).localeCompare(String(b.studentCode), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' }));
+    res.json({ className: '', classNames, yearId, rankings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -666,7 +866,7 @@ exports.getClassScores = async (req, res) => {
 exports.getAllScores = async (req, res) => {
   try {
     const yearId = await getCurrentYearId(req.query.yearId);
-    const rankings = await Score.getRankings(yearId);
+    const rankings = await Score.getRankings(yearId, undefined, undefined, req.user.role === 'college_admin' ? req.user.collegeId : null);
     res.json({ yearId, rankings });
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -701,9 +901,10 @@ exports.importScores = async (req, res) => {
     if (item.requires_proof) return res.status(400).json({ error: '该项目需要材料审核，不能通过成绩表直接导入' });
 
     const isAdmin = req.user.role === 'admin';
-    const teacher = isAdmin ? null : await Teacher.findByUserId(req.user.userId);
-    const scope = isAdmin ? { classNames: [], grade: '' } : await resolveManagedClassScope(pool, teacher);
-    if (!isAdmin && scope.classNames.length === 0) return res.status(403).json({ error: '未配置负责班级，无法导入成绩' });
+    const isCollegeAdmin = req.user.role === 'college_admin';
+    const teacher = isAdmin || isCollegeAdmin ? null : await Teacher.findByUserId(req.user.userId);
+    const scope = isAdmin || isCollegeAdmin ? { classNames: [], grade: '' } : await resolveManagedClassScope(pool, teacher);
+    if (!isAdmin && !isCollegeAdmin && scope.classNames.length === 0) return res.status(403).json({ error: '未配置负责班级，无法导入成绩' });
     const allowedKeys = new Set(scope.classNames.map(normalizeClassName));
     const resolvedYearId = await getCurrentYearId(yearId);
     await assertYearNotLocked(resolvedYearId);
@@ -712,13 +913,13 @@ exports.importScores = async (req, res) => {
     for (const s of scores) {
       const score = Number(s.score);
       const [rows] = await pool.query(
-        'SELECT id, class_name, grade FROM students WHERE student_id = ?',
+        'SELECT id, class_name, grade, college_id FROM students WHERE student_id = ?',
         [String(s.studentId || '').trim()]
       );
       const student = rows[0];
-      const inScope = isAdmin || (student &&
+      const inScope = isAdmin || (isCollegeAdmin ? Number(student?.college_id) === Number(req.user.collegeId) : (student &&
         allowedKeys.has(normalizeClassName(student.class_name)) &&
-        (!scope.grade || normalizeGrade(student.grade) === normalizeGrade(scope.grade)));
+        (!scope.grade || normalizeGrade(student.grade) === normalizeGrade(scope.grade))));
       const maxScore = parsedModuleId === 3 ? Math.min(60, Number(item.max_score)) : Number(item.max_score);
       const validScore = Number.isFinite(score) && score >= 0 && score <= maxScore;
       if (!student || !inScope || !validScore) {
@@ -774,9 +975,10 @@ exports.importMoralDeductions = async (req, res) => {
     if (itemMap.size === 0) return res.status(400).json({ error: '当前规则中没有可批量导入的德育扣分项' });
 
     const isAdmin = req.user.role === 'admin';
-    const teacher = isAdmin ? null : await Teacher.findByUserId(req.user.userId);
-    const scope = isAdmin ? { classNames: [], grade: '' } : await resolveManagedClassScope(pool, teacher);
-    if (!isAdmin && (!scope || scope.classNames.length === 0)) {
+    const isCollegeAdmin = req.user.role === 'college_admin';
+    const teacher = isAdmin || isCollegeAdmin ? null : await Teacher.findByUserId(req.user.userId);
+    const scope = isAdmin || isCollegeAdmin ? { classNames: [], grade: '' } : await resolveManagedClassScope(pool, teacher);
+    if (!isAdmin && !isCollegeAdmin && (!scope || scope.classNames.length === 0)) {
       return res.status(403).json({ error: '未配置负责班级，无法导入德育扣分' });
     }
     const allowedKeys = new Set((scope.classNames || []).map(normalizeClassName));
@@ -791,13 +993,13 @@ exports.importMoralDeductions = async (req, res) => {
       const manualScore = row.score === undefined || row.score === '' ? null : Number(row.score);
 
       const [students] = await pool.query(
-        'SELECT id, student_id, name, class_name, grade FROM students WHERE student_id = ?',
+        'SELECT id, student_id, name, class_name, grade, college_id FROM students WHERE student_id = ?',
         [studentCode]
       );
       const student = students[0];
-      const inScope = isAdmin || (student &&
+      const inScope = isAdmin || (isCollegeAdmin ? Number(student?.college_id) === Number(req.user.collegeId) : (student &&
         allowedKeys.has(normalizeClassName(student.class_name)) &&
-        (!scope.grade || normalizeGrade(scope.grade) === normalizeGrade(student.grade)));
+        (!scope.grade || normalizeGrade(scope.grade) === normalizeGrade(student.grade))));
 
       let score = Number(item && item.max_score);
       if (Number.isFinite(manualScore)) {

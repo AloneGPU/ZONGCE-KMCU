@@ -470,7 +470,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <div className="login-stage fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-5">
+    <div className="login-stage fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-0 sm:items-center sm:p-5">
       <div className="login-animated-bg">
         <PrismBackground intensity={1.72} speed={0.2} hueShift={-0.46} />
       </div>
@@ -480,7 +480,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: -16 }}
         transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-        className="login-shell relative my-2 grid max-h-[calc(100dvh-1rem)] w-full max-w-5xl overflow-y-auto overflow-x-hidden sm:my-auto md:grid-cols-12"
+        className="login-shell relative my-0 grid min-h-full max-h-none w-full max-w-5xl overflow-visible sm:my-auto sm:min-h-0 sm:max-h-[calc(100dvh-2.5rem)] sm:overflow-y-auto sm:overflow-x-hidden md:grid-cols-12"
       >
         <div className="login-visual-panel relative hidden min-h-[36rem] overflow-hidden p-8 text-white md:col-span-5 md:flex">
           <div className="login-visual-grid" />
@@ -510,7 +510,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
           </div>
         </div>
 
-        <div className="login-form-panel p-4 sm:p-7 md:col-span-7 md:p-8">
+        <div className="login-form-panel min-w-0 p-4 sm:p-7 md:col-span-7 md:p-8">
           <div className="mb-5 flex items-center gap-3 md:hidden">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 text-teal-700 shadow-sm dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-300">
               <Building2 className="h-5 w-5" />
@@ -633,13 +633,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                           onChange={e => setEmailCode(e.target.value)}
                           placeholder="6 位验证码"
                           required
-                          className="auth-input pr-24"
+                          className="auth-input sm:pr-24"
                         />
                         <button
                           type="button"
                           onClick={handleSendRegisterCode}
                           disabled={isSendingCode || codeCooldown > 0}
-                          className="absolute right-2 top-2 h-7 rounded-lg bg-slate-900 px-2 text-[11px] font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-teal-700"
+                          className="relative mt-2 h-9 w-full rounded-lg bg-slate-900 px-2 text-[11px] font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50 sm:absolute sm:right-2 sm:top-2 sm:mt-0 sm:h-7 sm:w-auto dark:bg-slate-700 dark:hover:bg-teal-700"
                         >
                           {isSendingCode ? '发送中' : codeCooldown > 0 ? `${codeCooldown}s` : '发送'}
                         </button>
@@ -654,7 +654,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                           type="email"
                           value={resetEmail}
                           onChange={e => setResetEmail(e.target.value)}
-                          placeholder="请输入账号绑定邮箱"
+                          placeholder="未绑定邮箱的学生可填写新邮箱"
                           required
                           autoComplete="email"
                           className="auth-input"
@@ -667,13 +667,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
                           onChange={e => setResetCode(e.target.value)}
                           placeholder="6 位验证码"
                           required
-                          className="auth-input pr-24"
+                          className="auth-input sm:pr-24"
                         />
                         <button
                           type="button"
                           onClick={handleSendResetCode}
                           disabled={isSendingCode || codeCooldown > 0}
-                          className="absolute right-2 top-2 h-7 rounded-lg bg-slate-900 px-2 text-[11px] font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-teal-700"
+                          className="relative mt-2 h-9 w-full rounded-lg bg-slate-900 px-2 text-[11px] font-bold text-white transition-colors hover:bg-teal-700 disabled:opacity-50 sm:absolute sm:right-2 sm:top-2 sm:mt-0 sm:h-7 sm:w-auto dark:bg-slate-700 dark:hover:bg-teal-700"
                         >
                           {isSendingCode ? '发送中' : codeCooldown > 0 ? `${codeCooldown}s` : '发送'}
                         </button>

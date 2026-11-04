@@ -13,8 +13,8 @@ router.get('/imported-scores', submissionCtrl.getMyImportedScores);
 
 // 提交材料 — 带文件上传
 router.get('/submissions', submissionCtrl.getMySubmissions);
-router.post('/submissions', upload.single('proof'), submissionCtrl.create);
-router.put('/submissions/:id', submissionCtrl.updateMySubmission);
+router.post('/submissions', upload.array('proofs', 10), submissionCtrl.create);
+router.put('/submissions/:id', upload.array('proofs', 10), submissionCtrl.updateMySubmission);
 router.delete('/submissions/:id', submissionCtrl.deleteMySubmission);
 
 module.exports = router;

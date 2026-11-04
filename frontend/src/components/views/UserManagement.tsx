@@ -65,9 +65,9 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   onUpdateStudents,
   currentUser
 }) => {
-  const isSuperAdmin = currentUser?.role === 'admin';
-  const isCounselorOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'counselor';
-  const [activeSubTab, setActiveSubTab] = useState<'students' | 'teachers' | 'assistants' | 'classOptions'>('students');
+  const isSuperAdmin = currentUser?.role === 'admin' || currentUser?.role === 'college_admin';
+  const isCounselorOrAdmin = currentUser?.role === 'admin' || currentUser?.role === 'college_admin' || currentUser?.role === 'counselor';
+  const [activeSubTab, setActiveSubTab] = useState<'students' | 'teachers' | 'assistants' | 'classOptions' | 'collegeAdmins'>('students');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [importStatusMsg, setImportStatusMsg] = useState<string>('');
@@ -81,6 +81,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const [assistantClassName, setAssistantClassName] = useState('');
   const [assistantList, setAssistantList] = useState<Array<{ student_id: string; name: string; class_name: string }>>([]);
   const [showAssistantTab, setShowAssistantTab] = useState(false);
+  const [collegeAdmins, setCollegeAdmins] = useState<Array<{ id: number; account: string; name: string; email?: string; college_id: number; college_name?: string }>>([]);
+  const [newCollegeAdmin, setNewCollegeAdmin] = useState({ account: '', name: '', email: '', collegeId: '', password: '' });
 
   const loadAssistants = async () => {
     try {
@@ -88,6 +90,36 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       setAssistantList(result.assistants || []);
       setShowAssistantTab(true);
     } catch (e) { /* ignore */ }
+  };
+
+  const loadCollegeAdmins = async () => {
+    if (!isSuperAdmin) return;
+    try {
+      const result = await apiService.fetchCollegeAdmins();
+      setCollegeAdmins(result.admins || []);
+    } catch (e) { /* ignore */ }
+  };
+
+  const createCollegeAdmin = async () => {
+    if (!newCollegeAdmin.account.trim() || !newCollegeAdmin.name.trim() || !newCollegeAdmin.collegeId) return alert('请填写账号、姓名和学院');
+    try {
+      const result: any = await apiService.createCollegeAdmin({
+        account: newCollegeAdmin.account.trim(),
+        name: newCollegeAdmin.name.trim(),
+        email: newCollegeAdmin.email.trim() || undefined,
+        collegeId: Number(newCollegeAdmin.collegeId),
+        password: newCollegeAdmin.password.trim() || undefined,
+      });
+      alert(`二级管理员已创建，初始密码：${result.initialPassword}`);
+      setNewCollegeAdmin({ account: '', name: '', email: '', collegeId: newCollegeAdmin.collegeId, password: '' });
+      loadCollegeAdmins();
+    } catch (e: any) { alert('创建失败: ' + (e.message || '请重试')); }
+  };
+
+  const deleteCollegeAdmin = async (id: number) => {
+    if (!confirm('确定停用该二级管理员账号？')) return;
+    try { await apiService.deleteCollegeAdmin(id); loadCollegeAdmins(); }
+    catch (e: any) { alert('停用失败: ' + (e.message || '请重试')); }
   };
 
   const promoteAssistant = async () => {
@@ -949,6 +981,14 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             >
               班委管理
             </button>
+            {currentUser?.role === 'admin' && (
+              <button
+                onClick={() => { loadCollegeAdmins(); setActiveSubTab('collegeAdmins'); }}
+                className={`shrink-0 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${activeSubTab === 'collegeAdmins' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+              >
+                二级管理员
+              </button>
+            )}
             {isSuperAdmin && (
               <button
                 onClick={() => { loadClassOptions(); setActiveSubTab('classOptions'); }}
@@ -978,7 +1018,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
         )}
       </div>
 
-      {isSuperAdmin && classRequests.length > 0 && (
+      {currentUser?.role === 'admin' && classRequests.length > 0 && (
         <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900 rounded-2xl p-5 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-3">
             <h3 className="min-w-0 text-sm font-bold text-slate-900 dark:text-white">年级/班级变更待审批 ({classRequests.length})</h3>
@@ -1197,6 +1237,18 @@ export const UserManagement: React.FC<UserManagementProps> = ({
             {classOptions.length === 0 ? <p className="py-8 text-center text-xs text-slate-400">暂无可供登录注册选择的专业班级</p> : (
               <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-3"><input type="checkbox" checked={allVisibleClassOptionsSelected} onChange={() => toggleAllVisibleIds(visibleClassOptionIds, selectedClassOptionIds, setSelectedClassOptionIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" title="全选当前班级" /></th><th className="px-3 py-3">学院</th><th className="px-3 py-3">年级</th><th className="px-3 py-3">专业</th><th className="px-3 py-3">班级</th><th className="px-3 py-3">注册可选辅导员</th><th className="px-3 py-3 text-right">操作</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{classOptions.map(option => <tr key={option.id}><td className="px-3 py-3"><input type="checkbox" checked={selectedClassOptionIds.includes(option.id)} onChange={() => toggleSelectedId(option.id, selectedClassOptionIds, setSelectedClassOptionIds)} className="rounded border-slate-300 text-rose-600 focus:ring-rose-500" /></td><td className="px-3 py-3 text-slate-500 dark:text-slate-400">{option.college_name || '默认学院'}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.grade}</td><td className="px-3 py-3 font-medium text-slate-800 dark:text-slate-100">{option.major}</td><td className="px-3 py-3 font-semibold text-blue-600 dark:text-blue-400">{option.class_name}</td><td className="px-3 py-3">{option.counselors?.length ? option.counselors.map(item => `${item.name}（${item.grade || '未设置年级'}）`).join('、') : '未绑定'}</td><td className="px-3 py-3"><div className="flex justify-end gap-2"><button onClick={() => beginEditClassOption(option)} title="编辑" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950"><Pencil className="h-3.5 w-3.5" /></button><button onClick={() => removeClassOption(option.id)} title="删除" className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950"><Trash2 className="h-3.5 w-3.5" /></button></div></td></tr>)}</tbody></table></div>
             )}
+          </div>
+        ) : activeSubTab === 'collegeAdmins' ? (
+          <div className="p-5 space-y-5">
+            <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 xl:grid-cols-5 dark:border-slate-700 dark:bg-slate-800/50">
+              <input value={newCollegeAdmin.account} onChange={e => setNewCollegeAdmin({ ...newCollegeAdmin, account: e.target.value })} placeholder="登录账号" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900" />
+              <input value={newCollegeAdmin.name} onChange={e => setNewCollegeAdmin({ ...newCollegeAdmin, name: e.target.value })} placeholder="姓名" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900" />
+              <select value={newCollegeAdmin.collegeId} onChange={e => setNewCollegeAdmin({ ...newCollegeAdmin, collegeId: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900"><option value="">选择学院</option>{collegesWithClasses.map(col => <option key={col.id} value={col.id}>{col.name}</option>)}</select>
+              <input value={newCollegeAdmin.email} onChange={e => setNewCollegeAdmin({ ...newCollegeAdmin, email: e.target.value })} placeholder="邮箱（可选）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900" />
+              <input value={newCollegeAdmin.password} onChange={e => setNewCollegeAdmin({ ...newCollegeAdmin, password: e.target.value })} placeholder="初始密码（可选）" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-900" />
+              <button onClick={createCollegeAdmin} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 sm:col-span-2 xl:col-span-1">创建二级管理员</button>
+            </div>
+            <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"><tr><th className="px-3 py-3">账号</th><th className="px-3 py-3">姓名</th><th className="px-3 py-3">学院</th><th className="px-3 py-3">邮箱</th><th className="px-3 py-3 text-right">操作</th></tr></thead><tbody className="divide-y divide-slate-100 dark:divide-slate-800">{collegeAdmins.map(item => <tr key={item.id}><td className="px-3 py-3 font-mono">{item.account}</td><td className="px-3 py-3">{item.name}</td><td className="px-3 py-3">{item.college_name || '-'}</td><td className="px-3 py-3">{item.email || '-'}</td><td className="px-3 py-3 text-right"><button onClick={() => deleteCollegeAdmin(item.id)} className="rounded-lg bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-300">停用</button></td></tr>)}</tbody></table></div>
           </div>
         ) : activeSubTab === 'assistants' ? (
           <div className="p-5 space-y-4">

@@ -1,5 +1,13 @@
 const pool = require('../config/database');
 const { normalizeClassName, normalizeGrade, standardizeClassNameForDisplay } = require('../utils/className');
+const { assignRankingGroups } = require('../utils/ranking');
+const {
+  centsToScore,
+  calculateWeightedScore,
+  calculateWeightedScoreScaled,
+  scoreToCents,
+  weightedScaledToScore,
+} = require('../utils/scoreMath');
 
 // 模块基础分从 scoring_modules.base_score 读取(可配置),进程内缓存。
 // 旧库未跑迁移时按原有硬编码规则兜底: 德育(1)/能力(4)/美育(5)/劳动(6) = 60。
@@ -30,8 +38,8 @@ function moduleBaseScore(moduleId) {
 }
 
 function capImportedScore(moduleId, score) {
-  const value = Number(score) || 0;
-  return Number(moduleId) === 3 ? Math.min(value, 60) : value;
+  const cents = scoreToCents(score);
+  return centsToScore(Number(moduleId) === 3 ? Math.min(cents, 6000) : cents);
 }
 
 async function invalidateBaseScores() {
@@ -86,8 +94,8 @@ const Score = {
          WHERE student_id = ? AND academic_year_id = ? AND module_id = ?), 0) AS importedScore`,
       [studentId, yearId, moduleId, studentId, yearId, moduleId]
     );
-    const approvedScore = parseFloat(rows[0].approvedScore) || 0;
-    const importedScore = parseFloat(rows[0].importedScore) || 0;
+    const approvedScore = centsToScore(scoreToCents(rows[0].approvedScore));
+    const importedScore = centsToScore(scoreToCents(rows[0].importedScore));
     const cappedImportedScore = capImportedScore(moduleId, importedScore);
     return { approvedScore, importedScore: cappedImportedScore, total: approvedScore + cappedImportedScore };
   },
@@ -102,19 +110,19 @@ const Score = {
   async calcTotalScore(studentId, yearId) {
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
     await ensureBaseScores();
-    let total = 0;
+    let totalScaled = 0;
 
     for (const mod of modRows) {
       const breakdown = await this.calcModuleBreakdown(studentId, yearId, mod.id);
       let modScore = breakdown.total;
       modScore = modScore + moduleBaseScore(mod.id);
-      total += modScore * parseFloat(mod.weight) / 100;
+      totalScaled += calculateWeightedScoreScaled(modScore, mod.weight);
     }
 
-    return Math.round(total * 100) / 100;
+    return weightedScaledToScore(totalScaled);
   },
 
-  async getRankings(yearId, className, grade) {
+  async getRankings(yearId, className, grade, collegeId) {
     let studentRows;
     if (className) {
       [studentRows] = await pool.query(
@@ -129,6 +137,7 @@ const Score = {
       [studentRows] = await pool.query('SELECT s.* FROM students s ORDER BY s.class_name, s.student_id');
       if (grade) studentRows = studentRows.filter(student => normalizeGrade(student.grade) === normalizeGrade(grade));
     }
+    if (collegeId) studentRows = studentRows.filter(student => Number(student.college_id) === Number(collegeId));
 
     if (studentRows.length === 0) return [];
 
@@ -151,9 +160,9 @@ const Score = {
     const scoreMap = new Map();
     for (const row of scoreRows) {
       scoreMap.set(`${row.student_id}:${row.module_id}`, {
-        approvedScore: parseFloat(row.approvedScore) || 0,
+        approvedScore: centsToScore(scoreToCents(row.approvedScore)),
         importedScore: capImportedScore(row.module_id, row.importedScore),
-        total: (parseFloat(row.approvedScore) || 0) + capImportedScore(row.module_id, row.importedScore),
+        total: centsToScore(scoreToCents(row.approvedScore) + scoreToCents(capImportedScore(row.module_id, row.importedScore))),
       });
     }
 
@@ -163,12 +172,13 @@ const Score = {
 
     for (const student of studentRows) {
       const moduleScores = [];
-      let total = 0;
+      let totalScaled = 0;
       for (const mod of modRows) {
         const breakdown = scoreMap.get(`${student.id}:${mod.id}`) || { approvedScore: 0, importedScore: 0, total: 0 };
         const score = breakdown.total;
         const baseScore = moduleBaseScore(mod.id);
         // 明细里同时给出原始加分与最终折算分，前端不再自行推算基础分
+        const finalScore = centsToScore(scoreToCents(score) + scoreToCents(baseScore));
         moduleScores.push({
           moduleId: mod.id,
           moduleName: mod.name,
@@ -176,33 +186,48 @@ const Score = {
           approvedScore: breakdown.approvedScore,
           importedScore: breakdown.importedScore,
           baseScore,
-          finalScore: score + baseScore,
+          finalScore,
+          weightedScore: calculateWeightedScore(finalScore, mod.weight),
+          weight: Number(mod.weight),
         });
-        total += (score + baseScore) * parseFloat(mod.weight) / 100;
+        totalScaled += calculateWeightedScoreScaled(finalScore, mod.weight);
       }
       rankings.push({
         studentId: student.id,
         studentCode: student.student_id,
         studentName: student.name,
         className: standardizeClassNameForDisplay(student.class_name),
+        collegeId: student.college_id,
         grade: student.grade,
         major: student.major,
-        totalScore: Math.round(total * 100) / 100,
+        totalScore: weightedScaledToScore(totalScaled),
+        totalScoreScaled: totalScaled,
         modules: moduleScores,
       });
     }
 
-    rankings.sort((a, b) => b.totalScore - a.totalScore);
-    rankings.forEach((r, i) => r.rank = i + 1);
-    return rankings;
+    const sortedRankings = assignRankingGroups(
+      rankings,
+      row => `${normalizeGrade(row.grade)}::${normalizeClassName(row.className)}`,
+      'totalScoreScaled'
+    );
+
+    sortedRankings.forEach(row => delete row.totalScoreScaled);
+    return sortedRankings;
   },
 
-  async getDashboardStats(yearId) {
-    const [students] = await pool.query('SELECT COUNT(*) as count FROM students');
-    const [teachers] = await pool.query('SELECT COUNT(*) as count FROM teachers');
-    const [pending] = await pool.query('SELECT COUNT(*) as count FROM submissions WHERE academic_year_id = ? AND status = ?', [yearId, 'pending']);
-    const [approved] = await pool.query('SELECT COUNT(*) as count FROM submissions WHERE academic_year_id = ? AND status = ?', [yearId, 'approved']);
-    const [classes] = await pool.query('SELECT COUNT(DISTINCT class_name) as count FROM students');
+  async getDashboardStats(yearId, collegeId = null) {
+    const studentWhere = collegeId ? ' WHERE college_id = ?' : '';
+    const studentParams = collegeId ? [collegeId] : [];
+    const [students] = await pool.query(`SELECT COUNT(*) as count FROM students${studentWhere}`, studentParams);
+    const [teachers] = await pool.query(`SELECT COUNT(*) as count FROM teachers${studentWhere}`, studentParams);
+    const submissionJoin = collegeId ? ' JOIN students s ON s.id = sub.student_id' : '';
+    const collegeClause = collegeId ? ' AND s.college_id = ?' : '';
+    const submissionParams = collegeId ? [yearId, 'pending', collegeId] : [yearId, 'pending'];
+    const approvedParams = collegeId ? [yearId, 'approved', collegeId] : [yearId, 'approved'];
+    const [pending] = await pool.query(`SELECT COUNT(*) as count FROM submissions sub${submissionJoin} WHERE sub.academic_year_id = ? AND sub.status = ?${collegeClause}`, submissionParams);
+    const [approved] = await pool.query(`SELECT COUNT(*) as count FROM submissions sub${submissionJoin} WHERE sub.academic_year_id = ? AND sub.status = ?${collegeClause}`, approvedParams);
+    const [classes] = await pool.query(`SELECT COUNT(DISTINCT class_name) as count FROM students${studentWhere}`, studentParams);
     return {
       totalStudents: students[0].count,
       totalTeachers: teachers[0].count,
@@ -217,3 +242,5 @@ module.exports = Score;
 Score.moduleBaseScore = moduleBaseScore;
 Score.ensureBaseScores = ensureBaseScores;
 Score.invalidateBaseScores = invalidateBaseScores;
+Score.calculateWeightedScore = calculateWeightedScore;
+Score.calculateWeightedScoreScaled = calculateWeightedScoreScaled;

@@ -6,6 +6,7 @@ const Score = require('../models/score');
 const pool = require('../config/database');
 const { getCurrentYearId } = require('../utils/year');
 const { canonicalizeClassNames, normalizeClassName, normalizeGrade, resolveManagedClassScope } = require('../utils/className');
+const { assignDenseRanks } = require('../utils/ranking');
 
 function capImportedScore(moduleId, score) {
   const value = Number(score) || 0;
@@ -59,7 +60,10 @@ async function calcStudentScoreTable(studentId, yearId) {
     };
   }
 
-  const totalScore = +Object.values(modScores).reduce((s, m) => s + +(m.raw * m.weight / 100).toFixed(2), 0).toFixed(2);
+  const totalScoreScaled = Object.values(modScores).reduce((sum, module) =>
+    sum + Score.calculateWeightedScoreScaled(module.raw, module.weight), 0
+  );
+  const totalScore = totalScoreScaled / 1000000;
 
   const m1 = modScores[1] || { raw: 60 };
   const m2 = modScores[2] || { raw: 0 };
@@ -71,17 +75,17 @@ async function calcStudentScoreTable(studentId, yearId) {
   // 35列格式（参照学校模板）: 序号|学号|姓名|性别 + 6模块(操行+分值) + 操行汇总|综测总分|排名
   return {
     // 德育(5列): 基础分|加分|减分|实际合计|加权分——无操行列
-    d1Base: 60, d1Bonus: +(Math.max(m1.approved || 0, 0)).toFixed(1), d1Deduct: +(Math.abs(Math.min(m1.imported || 0, 0))).toFixed(1), d1Total: m1.raw, d1Weighted: +(m1.raw * 0.2).toFixed(2),
+    d1Base: 60, d1Bonus: Math.max(m1.approved || 0, 0), d1Deduct: Math.abs(Math.min(m1.imported || 0, 0)), d1Total: m1.raw, d1Weighted: Score.calculateWeightedScore(m1.raw, m1.weight),
     // 智育(3列): 操行|学业成绩|加权分
-    d2Conduct: 0, d2Total: m2.raw, d2Weighted: +(m2.raw * 0.4).toFixed(2),
+    d2Conduct: 0, d2Total: m2.raw, d2Weighted: Score.calculateWeightedScore(m2.raw, m2.weight),
     // 体育(5列): 操行|基础分|加分|实际合计|加权分
-    d3Conduct: 0, d3Base: +(m3.imported || 0).toFixed(1), d3Bonus: +(m3.approved || 0).toFixed(1), d3Total: m3.raw, d3Weighted: +(m3.raw * 0.1).toFixed(2),
+    d3Conduct: 0, d3Base: m3.imported || 0, d3Bonus: m3.approved || 0, d3Total: m3.raw, d3Weighted: Score.calculateWeightedScore(m3.raw, m3.weight),
     // 能力(5列): 操行|基础分|加分|实际合计|加权分
-    d4Conduct: 0, d4Base: 60, d4Bonus: +(Math.max(m4.raw - 60, 0)).toFixed(1), d4Total: m4.raw, d4Weighted: +(m4.raw * 0.1).toFixed(2),
+    d4Conduct: 0, d4Base: 60, d4Bonus: Math.max(m4.raw - 60, 0), d4Total: m4.raw, d4Weighted: Score.calculateWeightedScore(m4.raw, m4.weight),
     // 美育(5列): 操行|基础分|加分|实际合计|加权分
-    d5Conduct: 0, d5Base: 60, d5Bonus: +(Math.max(m5.raw - 60, 0)).toFixed(1), d5Total: m5.raw, d5Weighted: +(m5.raw * 0.1).toFixed(2),
+    d5Conduct: 0, d5Base: 60, d5Bonus: Math.max(m5.raw - 60, 0), d5Total: m5.raw, d5Weighted: Score.calculateWeightedScore(m5.raw, m5.weight),
     // 劳动(5列): 操行|基础分|加分|实际合计|加权分
-    d6Conduct: 0, d6Base: 60, d6Bonus: +(Math.max(m6.raw - 60, 0)).toFixed(1), d6Total: m6.raw, d6Weighted: +(m6.raw * 0.1).toFixed(2),
+    d6Conduct: 0, d6Base: 60, d6Bonus: Math.max(m6.raw - 60, 0), d6Total: m6.raw, d6Weighted: Score.calculateWeightedScore(m6.raw, m6.weight),
     conductTotal: 0,
     totalScore,
   };
@@ -123,11 +127,55 @@ function assignRanks(rows) {
     ['d6Total', 'd6Rank'],
     ['totalScore', 'rank'],
   ];
-  for (const [scoreKey, rankKey] of configs) {
-    [...rows]
-      .sort((a, b) => Number(b[scoreKey] || 0) - Number(a[scoreKey] || 0))
-      .forEach((row, index) => { row[rankKey] = index + 1; });
+  const groups = new Map();
+  rows.forEach(row => {
+    const key = `${normalizeClassName(row.class_name || row.className)}::${normalizeGrade(row.grade)}`;
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key, group);
+  });
+  for (const group of groups.values()) {
+    for (const [scoreKey, rankKey] of configs) {
+      assignDenseRanks(group, scoreKey, rankKey, row => row.student_id || row.studentId);
+    }
   }
+}
+
+function compareClassScope(left, right) {
+  return normalizeGrade(left.grade).localeCompare(normalizeGrade(right.grade), 'zh-Hans-CN', { numeric: true }) ||
+    normalizeClassName(left.class_name).localeCompare(normalizeClassName(right.class_name), 'zh-Hans-CN', { numeric: true });
+}
+
+function groupRowsByClassScope(rows) {
+  const groups = new Map();
+  rows.forEach(row => {
+    const key = `${normalizeGrade(row.grade)}::${normalizeClassName(row.class_name)}`;
+    const group = groups.get(key) || {
+      key,
+      grade: row.grade || '',
+      className: row.class_name || '',
+      rows: [],
+    };
+    group.rows.push(row);
+    groups.set(key, group);
+  });
+  return Array.from(groups.values()).sort((left, right) =>
+    normalizeGrade(left.grade).localeCompare(normalizeGrade(right.grade), 'zh-Hans-CN', { numeric: true }) ||
+    normalizeClassName(left.className).localeCompare(normalizeClassName(right.className), 'zh-Hans-CN', { numeric: true })
+  );
+}
+
+function uniqueWorksheetName(rawName, usedNames) {
+  const cleaned = String(rawName || '成绩表').replace(/[\\/*?:\[\]]/g, '_').slice(0, 31) || '成绩表';
+  let candidate = cleaned;
+  let suffix = 2;
+  while (usedNames.has(candidate)) {
+    const suffixText = `_${suffix}`;
+    candidate = cleaned.slice(0, 31 - suffixText.length) + suffixText;
+    suffix += 1;
+  }
+  usedNames.add(candidate);
+  return candidate;
 }
 
 function totalRow(r, index) {
@@ -193,11 +241,12 @@ function getModuleExportConfig(moduleId) {
   return MODULE_EXPORT_CONFIGS[id] || null;
 }
 
-async function fetchStudentsByNormalizedScope(classNames = [], grade = '') {
+async function fetchStudentsByNormalizedScope(classNames = [], grade = '', collegeId = null) {
   const [rows] = await pool.query('SELECT * FROM students ORDER BY class_name, student_id');
   const classKeys = new Set((classNames || []).map(normalizeClassName).filter(Boolean));
   const gradeText = normalizeGrade(grade);
   return rows.filter(row => {
+    if (collegeId && Number(row.college_id) !== Number(collegeId)) return false;
     const classMatched = classKeys.size === 0 || classKeys.has(normalizeClassName(row.class_name));
     const gradeMatched = !gradeText || gradeText === 'all' || normalizeGrade(row.grade) === gradeText;
     return classMatched && gradeMatched;
@@ -205,6 +254,10 @@ async function fetchStudentsByNormalizedScope(classNames = [], grade = '') {
 }
 
 async function getScoreTableStudents(req, className, requestedGrade, emptyCounselorIsError = true) {
+  if (req.user && req.user.role === 'college_admin') {
+    return fetchStudentsByNormalizedScope([], requestedGrade && requestedGrade !== 'all' ? requestedGrade : '', req.user.collegeId);
+  }
+
   if (req.user && req.user.role === 'counselor') {
     const Teacher = require('../models/teacher');
     const teacher = await Teacher.findByUserId(req.user.userId);
@@ -273,7 +326,12 @@ exports.exportScoreTable = async (req, res) => {
       rows.push({ student_id: s.student_id, name: s.name, gender: s.gender || '', class_name: s.class_name, grade: s.grade, college_name: s.college_name, ...data });
     }
     assignRanks(rows);
-    rows.sort((a, b) => a.rank - b.rank);
+    rows.sort((a, b) =>
+      normalizeClassName(a.class_name).localeCompare(normalizeClassName(b.class_name), 'zh-Hans-CN', { numeric: true }) ||
+      normalizeGrade(a.grade).localeCompare(normalizeGrade(b.grade), 'zh-Hans-CN', { numeric: true }) ||
+      a.rank - b.rank ||
+      String(a.student_id).localeCompare(String(b.student_id), 'zh-Hans-CN', { numeric: true })
+    );
 
     const [yearRows] = await pool.query('SELECT name FROM academic_years WHERE id = ?', [yearId]);
     const yearName = yearRows[0] ? yearRows[0].name : String(yearId);
@@ -288,11 +346,17 @@ exports.exportScoreTable = async (req, res) => {
 
 function exportCSV(res, rows, className) {
   const BOM = '﻿';
-  let csv = BOM + CSV_HEADERS.join(',') + '\n';
+  const includeScope = !className;
+  const headers = includeScope ? ['年级', '专业班级', ...CSV_HEADERS] : CSV_HEADERS;
+  let csv = BOM + headers.join(',') + '\n';
+  const sequenceByScope = new Map();
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
-    csv += [
-      i + 1, r.student_id, r.name, r.gender,
+    const scopeKey = `${normalizeGrade(r.grade)}::${normalizeClassName(r.class_name)}`;
+    const sequence = includeScope ? (sequenceByScope.get(scopeKey) || 0) + 1 : i + 1;
+    sequenceByScope.set(scopeKey, sequence);
+    const values = [
+      sequence, r.student_id, r.name, r.gender,
       r.d1Base, r.d1Bonus, r.d1Deduct, r.d1Total, r.d1Weighted, r.d1Rank,
       r.d2Total, r.d2Weighted, r.d2Rank,
       r.d3Base, r.d3Bonus, r.d3Total, r.d3Weighted, r.d3Rank,
@@ -300,7 +364,8 @@ function exportCSV(res, rows, className) {
       r.d5Base, r.d5Bonus, r.d5Total, r.d5Weighted, r.d5Rank,
       r.d6Base, r.d6Bonus, r.d6Total, r.d6Weighted, r.d6Rank,
       r.totalScore, r.rank
-    ].join(',') + '\n';
+    ];
+    csv += (includeScope ? [r.grade, r.class_name, ...values] : values).join(',') + '\n';
   }
   const filename = (className || '全部班级') + '_综合测评登分表.csv';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -310,18 +375,28 @@ function exportCSV(res, rows, className) {
 
 function exportModuleCSV(res, rows, className, config) {
   const BOM = '﻿';
-  const headers = ['序号', '学号', '姓名', '性别', ...config.headers, '排名'];
-  const sortedRows = [...rows].sort((a, b) => Number(a[config.rankKey] || 999999) - Number(b[config.rankKey] || 999999));
+  const includeScope = !className;
+  const headers = [...(includeScope ? ['年级', '专业班级'] : []), '序号', '学号', '姓名', '性别', ...config.headers, '排名'];
+  const sortedRows = [...rows].sort((a, b) =>
+    compareClassScope(a, b) ||
+    Number(a[config.rankKey] || 999999) - Number(b[config.rankKey] || 999999) ||
+    String(a.student_id).localeCompare(String(b.student_id), 'zh-Hans-CN', { numeric: true })
+  );
   let csv = BOM + headers.join(',') + '\n';
+  const sequenceByScope = new Map();
   sortedRows.forEach((r, index) => {
-    csv += [
-      index + 1,
+    const scopeKey = `${normalizeGrade(r.grade)}::${normalizeClassName(r.class_name)}`;
+    const sequence = includeScope ? (sequenceByScope.get(scopeKey) || 0) + 1 : index + 1;
+    sequenceByScope.set(scopeKey, sequence);
+    const values = [
+      sequence,
       r.student_id,
       r.name,
       r.gender,
       ...config.map(r),
       r[config.rankKey],
-    ].join(',') + '\n';
+    ];
+    csv += (includeScope ? [r.grade, r.class_name, ...values] : values).join(',') + '\n';
   });
   const filename = (className || '全部班级') + '_' + config.title + '单项成绩表.csv';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -399,7 +474,10 @@ function addModuleSheet(wb, title, headers, rows, mapper, rankKey) {
   const ws = wb.addWorksheet(title);
   ws.addRow(headers);
   [...rows]
-    .sort((a, b) => Number(a[rankKey] || 999999) - Number(b[rankKey] || 999999))
+    .sort((a, b) =>
+      Number(a[rankKey] || 999999) - Number(b[rankKey] || 999999) ||
+      String(a.student_id).localeCompare(String(b.student_id), 'zh-Hans-CN', { numeric: true })
+    )
     .forEach(row => ws.addRow(mapper(row)));
   setDefaultWidths(ws, headers.map(header => String(header).includes('换算') ? 18 : 12));
   ws.views = [{ state: 'frozen', ySplit: 1 }];
@@ -407,8 +485,8 @@ function addModuleSheet(wb, title, headers, rows, mapper, rankKey) {
   return ws;
 }
 
-function addSingleModuleReportSheet(wb, config, rows, className, yearName) {
-  const ws = wb.addWorksheet(config.title);
+function addSingleModuleReportSheet(wb, config, rows, className, yearName, worksheetName = config.title) {
+  const ws = wb.addWorksheet(worksheetName);
   const info = parseClassParts(className, rows);
   const headers = ['序号', '学号', '姓名', '性别', ...config.headers, '排名'];
   const columnCount = headers.length;
@@ -420,7 +498,10 @@ function addSingleModuleReportSheet(wb, config, rows, className, yearName) {
   ws.mergeCells(2, 1, 2, columnCount);
   if (config.headers.length > 1) ws.mergeCells(3, 5, 3, 4 + config.headers.length);
   [...rows]
-    .sort((a, b) => Number(a[config.rankKey] || 999999) - Number(b[config.rankKey] || 999999))
+    .sort((a, b) =>
+      Number(a[config.rankKey] || 999999) - Number(b[config.rankKey] || 999999) ||
+      String(a.student_id).localeCompare(String(b.student_id), 'zh-Hans-CN', { numeric: true })
+    )
     .forEach((r, index) => ws.addRow([
       index + 1,
       r.student_id,
@@ -437,8 +518,8 @@ function addSingleModuleReportSheet(wb, config, rows, className, yearName) {
   return ws;
 }
 
-function addComprehensiveSheet(wb, rows, className, yearName) {
-  const ws = wb.addWorksheet('综测');
+function addComprehensiveSheet(wb, rows, className, yearName, worksheetName = '综测') {
+  const ws = wb.addWorksheet(worksheetName);
   const info = parseClassParts(className, rows);
   ws.addRow([`${yearName} 学年${info.college}学生综合素质测评班级情况登记表`]);
   ws.addRow([`专业：${info.major}            年级：${info.grade || ''}             班级：${info.classNo}         学生人数：${rows.length}`]);
@@ -462,7 +543,30 @@ async function exportXLSX(res, rows, className, yearName, moduleConfig = null) {
     const wb = new ExcelJS.Workbook();
     wb.creator = '综测管理平台';
 
-    if (moduleConfig) {
+    if (!className) {
+      const usedNames = new Set();
+      for (const group of groupRowsByClassScope(rows)) {
+        const scopeName = `${normalizeGrade(group.grade) || '未分年级'}-${group.className || '未分班级'}`;
+        if (moduleConfig) {
+          addSingleModuleReportSheet(
+            wb,
+            moduleConfig,
+            group.rows,
+            group.className,
+            yearName,
+            uniqueWorksheetName(`${scopeName}-${moduleConfig.title}`, usedNames)
+          );
+        } else {
+          addComprehensiveSheet(
+            wb,
+            group.rows,
+            group.className,
+            yearName,
+            uniqueWorksheetName(`${scopeName}-综测`, usedNames)
+          );
+        }
+      }
+    } else if (moduleConfig) {
       addSingleModuleReportSheet(wb, moduleConfig, rows, className, yearName);
     } else {
       addTotalModuleSheet(wb, rows);
@@ -530,8 +634,12 @@ exports.getScoreTable = async (req, res) => {
       const data = await calcStudentScoreTable(s.id, yearId);
       rows.push({ studentId: s.student_id, name: s.name, gender: s.gender || '', class_name: s.class_name, grade: s.grade, ...data });
     }
-    rows.sort((a, b) => b.totalScore - a.totalScore);
-    rows.forEach((r, i) => r.rank = i + 1);
+    assignRanks(rows);
+    rows.sort((a, b) =>
+      compareClassScope(a, b) ||
+      Number(a.rank || 999999) - Number(b.rank || 999999) ||
+      String(a.studentId).localeCompare(String(b.studentId), 'zh-Hans-CN', { numeric: true })
+    );
 
     res.json({ rows, className, total: rows.length });
   } catch (err) {

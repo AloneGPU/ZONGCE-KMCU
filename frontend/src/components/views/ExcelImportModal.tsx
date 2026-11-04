@@ -76,7 +76,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
   const [deductionMessage, setDeductionMessage] = useState('');
 
   const selectedItem = importableItems.find(item => String(item.id) === selectedItemId) || importableItems[0];
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'college_admin';
   const matchedCount = parsedItems.filter(item => item.matchFound && Number.isFinite(item.score)).length;
   const invalidCount = parsedItems.length - matchedCount;
   const deductionMatchedCount = parsedDeductions.filter(item => item.matchFound && Number.isFinite(item.calculatedScore)).length;

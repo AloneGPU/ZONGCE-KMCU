@@ -28,7 +28,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeMaterial, setActiveMaterial] = useState<ProofMaterial | null>(null);
-  const [isProofPreviewOpen, setIsProofPreviewOpen] = useState(false);
+  const [proofPreviewIndex, setProofPreviewIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
@@ -52,11 +52,11 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
   };
 
   const handleBatchDelete = async () => {
-    if (selectedIds.length === 0 || isBatchDeleting || (currentUser.role !== 'admin' && currentUser.role !== 'counselor')) return;
+    if (selectedIds.length === 0 || isBatchDeleting || !(['admin', 'college_admin', 'counselor'] as string[]).includes(currentUser.role)) return;
     if (!window.confirm(`批量删除已选择的 ${selectedIds.length} 条材料？该操作会同时删除材料记录与证明图片，已通过材料会影响成绩。确定继续吗？`)) return;
     setIsBatchDeleting(true);
     try {
-      const result: any = await apiService.batchDeleteMaterials(currentUser.role as 'admin' | 'counselor', selectedIds);
+      const result: any = await apiService.batchDeleteMaterials(currentUser.role as 'admin' | 'college_admin' | 'counselor', selectedIds);
       alert(result.message || `已删除 ${result.deletedCount || 0} 条材料`);
       setSelectedIds([]);
       onForceDeleteMaterial?.('');
@@ -69,7 +69,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
 
   const openReviewModal = (mat: ProofMaterial) => {
     setActiveMaterial(mat);
-    setIsProofPreviewOpen(false);
+    setProofPreviewIndex(null);
     setReviewScore(mat.approvedScore ?? mat.requestedScore);
     setRejectReason(mat.rejectReason || '');
   };
@@ -104,8 +104,8 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
 
   const filteredMaterials = materials.filter(m => {
     // 待审核：管理员看全院流转中材料；辅导员看所管班级待终审/可直审材料；班委看本班待初审材料。
-    const isAdmin = currentUser?.role === 'admin';
-    const isCounselor = currentUser?.role === 'counselor' || currentUser?.role === 'admin';
+    const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'college_admin';
+    const isCounselor = currentUser?.role === 'counselor' || isAdmin;
     const matchesStatus = selectedStatus === 'all'
       || (selectedStatus === 'pending' && (
         isAdmin
@@ -126,7 +126,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
   });
 
   const pendingCount = materials.filter(m => m.status === 'pending' || m.status === 'assistant_approved').length;
-  const canBatchDelete = currentUser.role === 'admin' || currentUser.role === 'counselor';
+  const canBatchDelete = currentUser.role === 'admin' || currentUser.role === 'college_admin' || currentUser.role === 'counselor';
   const filteredIds = filteredMaterials.map(item => item.id);
   const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
   const toggleSelected = (id: string) => {
@@ -161,7 +161,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
           <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:justify-end">
             <span className="text-xs font-medium text-slate-500 hidden sm:inline">审核身份:</span>
             <span className="max-w-full truncate rounded-xl border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
-              {currentUser.name} ({currentUser.role === 'counselor' ? '辅导员' : currentUser.role === 'admin' ? '系统管理员' : '学委/班委'})
+              {currentUser.name} ({currentUser.role === 'counselor' ? '辅导员' : currentUser.role === 'admin' ? '系统管理员' : currentUser.role === 'college_admin' ? '学院管理员' : '学委/班委'})
             </span>
             <button
               onClick={() => exportMaterialAuditRecordsExcel(filteredMaterials, `加分材料审核明细表_${selectedStatus}.xlsx`)}
@@ -336,7 +336,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                   className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-slate-100 py-2 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  <span>{currentUser.role === 'admin' ? '查看材料流转详情' : mat.status === 'pending' ? '审查该材料附件并打分' : '查看审查详情'}</span>
+                      <span>{mat.status === 'pending' || mat.status === 'assistant_approved' ? '审查该材料附件并打分' : '查看审查详情'}</span>
                 </button>
 {(currentUser.role === 'admin' || currentUser.role === 'counselor') && (
                   <button
@@ -367,7 +367,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                 </h3>
               </div>
               <button
-                onClick={() => { setIsProofPreviewOpen(false); setActiveMaterial(null); }}
+                onClick={() => { setProofPreviewIndex(null); setActiveMaterial(null); }}
                 className="text-slate-400 hover:text-slate-600 p-1"
               >
                 ✕
@@ -399,15 +399,20 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
                 证明材料附件影印件
               </label>
-              {activeMaterial.proofUrl ? (
-                <ImageLightbox
-                  src={activeMaterial.proofUrl}
-                  alt={`${activeMaterial.studentName}的${activeMaterial.title}证明材料`}
-                  open={isProofPreviewOpen}
-                  onOpen={() => setIsProofPreviewOpen(true)}
-                  onClose={() => setIsProofPreviewOpen(false)}
-                  className="h-48 w-full border border-slate-200 dark:border-slate-800 sm:h-64"
-                />
+              {(activeMaterial.proofUrls || (activeMaterial.proofUrl ? [activeMaterial.proofUrl] : [])).length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {(activeMaterial.proofUrls || (activeMaterial.proofUrl ? [activeMaterial.proofUrl] : [])).map((proofUrl, index) => (
+                    <ImageLightbox
+                      key={`${activeMaterial.id}-${index}`}
+                      src={proofUrl}
+                      alt={`${activeMaterial.studentName}的${activeMaterial.title}证明材料 ${index + 1}`}
+                      open={proofPreviewIndex === index}
+                      onOpen={() => setProofPreviewIndex(index)}
+                      onClose={() => setProofPreviewIndex(null)}
+                      className="h-36 w-full border border-slate-200 dark:border-slate-800 sm:h-48"
+                    />
+                  ))}
+                </div>
               ) : (
                 <div className="p-8 text-center bg-slate-100 dark:bg-slate-800 rounded-xl text-xs text-slate-400">
                   无图片附件，提交文本说明
@@ -423,17 +428,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
 
             {/* Score & Review Action Panel */}
             <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
-              {currentUser.role === 'admin' ? (
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl">
-                  <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300 font-bold text-xs">
-                    <Eye className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
-                    <span>管理员复核说明</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    管理员可查看全院材料的流转详情并执行强制删除；材料评分与终审由班委初审、辅导员终审完成。如需更正分数请退回材料并联系辅导员重新审核。
-                  </p>
-                </div>
-              ) : currentUser.role === 'assistant' && activeMaterial.studentId === currentUser.studentId ? (
+              {currentUser.role === 'assistant' && activeMaterial.studentId === currentUser.studentId ? (
                 <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-2xl space-y-2">
                   <div className="flex items-center space-x-2 text-amber-800 dark:text-amber-300 font-bold text-xs">
                     <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -453,6 +448,7 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                   </div>
                 </div>
               ) : (
+                activeMaterial.status === 'pending' || activeMaterial.status === 'assistant_approved' ? (
                 <>
                   {currentUser.role === 'counselor' && activeMaterial.reviewerRole === 'assistant' && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-xl text-xs text-amber-700 dark:text-amber-300 flex items-center space-x-2">
@@ -504,10 +500,15 @@ export const AuditCenter: React.FC<AuditCenterProps> = ({
                     className="flex w-full items-center justify-center gap-1 rounded-xl bg-blue-600 px-5 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 hover:bg-blue-700 sm:w-auto cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>{currentUser.role === 'assistant' ? '初审通过并提交辅导员终审' : '终审通过并计入综测总分'}</span>
+                      <span>{currentUser.role === 'assistant' ? '初审通过并提交辅导员终审' : currentUser.role === 'admin' ? '管理员复核通过并计入综测总分' : '终审通过并计入综测总分'}</span>
                     </button>
                   </div>
                 </>
+                ) : (
+                  <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-2xl text-xs text-slate-500">
+                    当前材料已结束审核流程，仅可查看详情或删除。
+                  </div>
+                )
               )}
             </div>
           </div>

@@ -55,18 +55,18 @@ export async function exportComprehensiveScoreExcel(
     '德育基础分': s.moralBase,
     '德育扣分': s.moralDeduction,
     '德育加分': s.moralBonus,
-    '德育折算分': s.moralFinal,
+    '德育折算分': s.moralWeighted,
     '智育': s.intellectualBase,
-    '智育折算分': s.intellectualFinal,
+    '智育折算分': s.intellectualWeighted,
     '体育基础分': s.physicalBase,
     '体育加分': s.physicalBonus,
-    '体育折算分': s.physicalFinal,
+    '体育折算分': s.physicalWeighted,
     '能力加分': s.abilityBonus,
-    '能力折算分': s.abilityFinal,
+    '能力折算分': s.abilityWeighted,
     '美育加分': s.aestheticsBonus,
-    '美育折算分': s.aestheticsFinal,
+    '美育折算分': s.aestheticsWeighted,
     '劳动加分': s.laborBonus,
-    '劳动折算分': s.laborFinal,
+    '劳动折算分': s.laborWeighted,
     '附加加分': s.extraBonus,
     '综合测评总分': s.totalScore,
     '测评等级': s.evaluationGrade,
@@ -142,7 +142,7 @@ export async function exportSectionScoreExcel(
       '德育基础分 (满分100)': s.moralBase,
       '德育违纪扣分': s.moralDeduction,
       '日常行为/思政加分': s.moralBonus,
-      '德育最终折算分 (占比20%)': s.moralFinal
+      '德育最终折算分 (占比20%)': s.moralWeighted
     }));
     cols = [{ wch: 6 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 18 }, { wch: 14 }, { wch: 18 }, { wch: 22 }];
   } else if (section === 'intellectual') {
@@ -154,7 +154,7 @@ export async function exportSectionScoreExcel(
       '专业班级': s.majorClass,
       '学业平均学分绩点(GPA)': s.intellectualBase,
       '竞赛科研/智育加分': s.intellectualBonus,
-      '智育最终折算分 (占比60%)': s.intellectualFinal
+      '智育最终折算分 (占比40%)': s.intellectualWeighted
     }));
     cols = [{ wch: 6 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 18 }, { wch: 22 }];
   } else if (section === 'physical') {
@@ -166,7 +166,7 @@ export async function exportSectionScoreExcel(
       '专业班级': s.majorClass,
       '体测成绩基础分': s.physicalBase,
       '体育竞赛/打卡加分': s.physicalBonus,
-      '体育最终折算分 (占比10%)': s.physicalFinal
+      '体育最终折算分 (占比10%)': s.physicalWeighted
     }));
     cols = [{ wch: 6 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 22 }];
   } else if (section === 'bonus') {

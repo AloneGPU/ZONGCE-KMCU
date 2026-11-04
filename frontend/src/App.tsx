@@ -33,6 +33,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavItemKey>('overview');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<ProofMaterial | null>(null);
   const [loadError, setLoadError] = useState('');
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem('zongce_theme');
@@ -70,6 +71,7 @@ export default function App() {
           apiService.fetchTeachers()
         ]);
         setSummaries(scoreResult.summaries);
+        if (!scoreResult.summaries.length && scoreResult.message) setLoadError(scoreResult.message);
         setMaterials(reviewMaterials);
         setStudents(fetchedStudents);
         setTeachers(fetchedTeachers);
@@ -89,7 +91,7 @@ export default function App() {
           apiService.fetchStudents(),
           apiService.fetchTeachers(),
           apiService.fetchAllScores(queryYear),
-          apiService.fetchReview('admin', queryYear)
+          apiService.fetchReview(currentUser.role, queryYear)
         ]);
         setStudents(fetchedStudents);
         setTeachers(fetchedTeachers);
@@ -157,26 +159,28 @@ export default function App() {
   const pendingMaterialsCount = materials.filter(item => item.status === 'pending' || item.status === 'assistant_approved').length;
 
   const openUploadModal = () => {
+    setEditingMaterial(null);
     setIsMobileMenuOpen(false);
     setShowUploadModal(true);
   };
 
   const handleTabChange = (tab: NavItemKey) => {
     setShowUploadModal(false);
+    setEditingMaterial(null);
     setIsMobileMenuOpen(false);
     setActiveTab(tab);
   };
 
-  const handleReview = async (id: string, status: 'approved' | 'rejected', _score?: number, reason?: string) => {
+  const handleReview = async (id: string, status: 'approved' | 'rejected', score?: number, reason?: string) => {
     if (!currentUser) return;
     try {
-      await apiService.reviewMaterial(currentUser.role, id, status === 'approved' ? 'approve' : 'reject', reason);
+      await apiService.reviewMaterial(currentUser.role, id, status === 'approved' ? 'approve' : 'reject', reason, score);
       // 立即更新本地 state — 审核通过立刻归类到正确状态
       const newStatus = status === 'approved'
         ? (currentUser.role === 'assistant' ? 'assistant_approved' : 'approved')
         : 'rejected';
       setMaterials(prev => prev.map(m =>
-        m.id === id ? { ...m, status: newStatus, approvedScore: status === 'approved' ? m.requestedScore : undefined, rejectReason: status === 'rejected' ? (reason || '') : undefined } : m
+        m.id === id ? { ...m, status: newStatus, requestedScore: status === 'approved' && score !== undefined ? score : m.requestedScore, approvedScore: status === 'approved' ? (score ?? m.requestedScore) : undefined, rejectReason: status === 'rejected' ? (reason || '') : undefined } : m
       ));
       // 服务端写入完成后再整量刷新，保持状态一致
       await reload();
@@ -185,7 +189,7 @@ export default function App() {
     }
   };
 
-  const handleSubmitMaterial = async (data: { moduleId: string; itemId: string; year: string; description: string; awardMonth?: string; proof?: File; count?: number; proofName?: string; onProgress?: (pct: number) => void }) => {
+  const handleSubmitMaterial = async (data: { moduleId: string; itemId: string; year: string; description: string; awardMonth?: string; proofs?: File[]; count?: number; proofName?: string; onProgress?: (pct: number) => void }) => {
     try {
       const result: any = await apiService.submitMaterial(data);
       setShowUploadModal(false);
@@ -197,6 +201,18 @@ export default function App() {
       await reload();
     } catch (error: any) {
       alert(error?.message || '材料提交失败');
+    }
+  };
+
+  const handleEditMaterial = async (data: { moduleId?: string; itemId?: string; description: string; awardMonth?: string; proofs?: File[]; count?: number; proofName?: string; onProgress?: (pct: number) => void }) => {
+    if (!editingMaterial) return;
+    try {
+      await apiService.updateMaterial(editingMaterial.id, data);
+      setShowUploadModal(false);
+      setEditingMaterial(null);
+      await reload();
+    } catch (error: any) {
+      alert(error?.message || '材料修改失败');
     }
   };
 
@@ -242,11 +258,11 @@ export default function App() {
         <main className="app-content relative z-10 flex-1 overflow-y-auto p-3 sm:p-5 md:p-7 lg:p-8 max-w-[1440px] mx-auto w-full space-y-6">
           {loadError && <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-700">{loadError}</div>}
           {activeTab === 'overview' && (currentUser.role === 'student' || currentUser.role === 'assistant') ? (
-            <StudentDashboard currentUser={currentUser} summary={currentStudentSummary} materials={materials} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} academicYears={academicYears} onOpenUploadModal={openUploadModal} onDeleteMaterial={handleDeleteMaterial} onNavigateToPDF={() => handleTabChange('pdf-export')} focusView="overview" />
+            <StudentDashboard currentUser={currentUser} summary={currentStudentSummary} materials={materials} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} academicYears={academicYears} onOpenUploadModal={openUploadModal} onEditMaterial={(material) => { setEditingMaterial(material); setShowUploadModal(true); }} onDeleteMaterial={handleDeleteMaterial} onNavigateToPDF={() => handleTabChange('pdf-export')} focusView="overview" />
           ) : activeTab === 'overview' || activeTab === 'class-overview' ? (
             <OverviewDashboard currentUser={currentUser} summaries={summaries} materials={materials} activeAcademicYear={activeAcademicYear} rulesLocked={rulesLocked} onNavigateTab={handleTabChange} />
           ) : null}
-          {activeTab === 'my-materials' && <StudentDashboard currentUser={currentUser} summary={currentStudentSummary} materials={materials} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} academicYears={academicYears} onOpenUploadModal={openUploadModal} onDeleteMaterial={handleDeleteMaterial} onNavigateToPDF={() => handleTabChange('pdf-export')} focusView="materials" />}
+          {activeTab === 'my-materials' && <StudentDashboard currentUser={currentUser} summary={currentStudentSummary} materials={materials} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} academicYears={academicYears} onOpenUploadModal={openUploadModal} onEditMaterial={(material) => { setEditingMaterial(material); setShowUploadModal(true); }} onDeleteMaterial={handleDeleteMaterial} onNavigateToPDF={() => handleTabChange('pdf-export')} focusView="materials" />}
           {activeTab === 'audit-center' && (
             <AuditCenter
               materials={materials}
@@ -255,15 +271,15 @@ export default function App() {
               onForceDeleteMaterial={() => setTimeout(() => reload(), 300)}
             />
           )}
-          {(activeTab === 'rules-config' || activeTab === 'rules-view') && <RuleManagement ruleConfigs={ruleConfigs} rulesLocked={rulesLocked} onUpdateRuleConfigs={() => reload()} onToggleLockRules={async () => { try { await apiService.toggleRules(currentUser.role); await reload(); } catch (e: any) { alert(e.message); } }} isAdmin={currentUser.role === 'admin'} currentUser={currentUser} />}
+          {(activeTab === 'rules-config' || activeTab === 'rules-view') && currentUser.role !== 'college_admin' && <RuleManagement ruleConfigs={ruleConfigs} rulesLocked={rulesLocked} onUpdateRuleConfigs={() => reload()} onToggleLockRules={async () => { try { await apiService.toggleRules(currentUser.role); await reload(); } catch (e: any) { alert(e.message); } }} isAdmin={currentUser.role === 'admin'} currentUser={currentUser} />}
           {activeTab === 'user-import' && <UserManagement teachers={teachers} students={students} onUpdateTeachers={setTeachers} onUpdateStudents={setStudents} currentUser={currentUser} />}
           {activeTab === 'archiving' && (currentUser.role === 'admin' || currentUser.role === 'counselor') && <AcademicYearArchiving academicYears={academicYears} activeAcademicYear={activeAcademicYear} onSelectActiveYear={setActiveAcademicYear} onUpdateAcademicYears={setAcademicYears} isAdmin={currentUser.role === 'admin'} currentUser={currentUser} />}
-          {activeTab === 'excel-import' && (currentUser.role === 'admin' || currentUser.role === 'counselor') && <ExcelImportModal students={students} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} currentUser={currentUser} onImported={reload} />}
+          {activeTab === 'excel-import' && (currentUser.role === 'admin' || currentUser.role === 'college_admin' || currentUser.role === 'counselor') && <ExcelImportModal students={students} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} currentUser={currentUser} onImported={reload} />}
           {activeTab === 'score-export' && <ExportCenter summaries={summaries} activeAcademicYear={activeAcademicYear} currentUser={currentUser} />}
           {activeTab === 'pdf-export' && <PersonalReportPDF currentUser={currentUser} summary={currentStudentSummary} materials={materials} activeAcademicYear={activeAcademicYear} onBack={() => setActiveTab('overview')} />}
         </main>
       </div>
-      {showUploadModal && <MaterialUploadModal currentUser={currentUser} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} onClose={() => setShowUploadModal(false)} onSubmitMaterial={handleSubmitMaterial} />}
+      {showUploadModal && <MaterialUploadModal currentUser={currentUser} ruleConfigs={ruleConfigs} activeAcademicYear={activeAcademicYear} editingMaterial={editingMaterial} onClose={() => { setShowUploadModal(false); setEditingMaterial(null); }} onSubmitMaterial={editingMaterial ? handleEditMaterial : handleSubmitMaterial} />}
     </div>
   );
 }

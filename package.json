@@ -11,6 +11,7 @@
     "db:backup": "bash scripts/backup.sh",
     "db:prune-audit": "node server/config/pruneAudit.js",
     "smoke": "bash scripts/smoke.sh",
+    "test:ranking": "node server/utils/ranking.test.js",
     "build:ui": "cd frontend && npm run build:ui",
     "build:ui:full": "cd frontend && npm run build"
   },

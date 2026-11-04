@@ -1,0 +1,2 @@
+-- 由 server/config/migrate.js 执行兼容迁移。
+-- 按项目历史迁移风格保留空 SQL，避免旧版 MySQL/MariaDB 的 CHECK DDL 差异。

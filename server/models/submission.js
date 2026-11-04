@@ -23,14 +23,14 @@ const Submission = {
     const params = grade ? [className, yearId, grade] : [className, yearId];
     if (assigneeUserId) params.push(assigneeUserId);
     const [rows] = await pool.query(
-      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade,
+      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade, s.college_id,
               sm.name as module_name, si.name as item_name
        FROM submissions sub
        JOIN students s ON sub.student_id = s.id
        LEFT JOIN scoring_modules sm ON sub.module_id = sm.id
        LEFT JOIN scoring_items si ON sub.item_id = si.id
        WHERE s.class_name = ? AND sub.academic_year_id = ?${gradeClause}${assigneeClause}
-       ORDER BY sub.submit_at DESC`, params
+       ORDER BY RAND()`, params
     );
     return rows;
   },
@@ -41,21 +41,21 @@ const Submission = {
     const gradeClause = grade ? ' AND s.grade = ?' : '';
     const params = grade ? [...classNames, yearId, grade] : [...classNames, yearId];
     const [rows] = await pool.query(
-      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade,
+      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade, s.college_id,
               sm.name as module_name, si.name as item_name
        FROM submissions sub
        JOIN students s ON sub.student_id = s.id
        LEFT JOIN scoring_modules sm ON sub.module_id = sm.id
        LEFT JOIN scoring_items si ON sub.item_id = si.id
        WHERE s.class_name IN (${placeholders}) AND sub.academic_year_id = ?${gradeClause}
-       ORDER BY sub.submit_at DESC`, params
+      ORDER BY sub.submit_at DESC`, params
     );
     return rows;
   },
 
   async findByYear(yearId) {
     const [rows] = await pool.query(
-      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade,
+      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade, s.college_id,
               sm.name as module_name, si.name as item_name, ay.name as year_name
        FROM submissions sub
        JOIN students s ON sub.student_id = s.id
@@ -71,7 +71,7 @@ const Submission = {
 
   async findById(id) {
     const [rows] = await pool.query(
-      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade,
+      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade, s.college_id,
               sm.name as module_name, si.name as item_name, ay.name as year_name
        FROM submissions sub
        JOIN students s ON sub.student_id = s.id
@@ -86,7 +86,7 @@ const Submission = {
   // 学生对自己材料的查询：ID + 学生双重条件，防止越权读取他人提交
   async findByIdForStudent(id, studentId) {
     const [rows] = await pool.query(
-      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade,
+      `SELECT sub.*, s.name as student_name, s.student_id as student_code, s.class_name, s.grade, s.college_id,
               sm.name as module_name, si.name as item_name, ay.name as year_name
        FROM submissions sub
        JOIN students s ON sub.student_id = s.id
@@ -98,19 +98,19 @@ const Submission = {
     return rows[0] || null;
   },
 
-  async create({ studentId, academicYearId, moduleId, itemId, score, description, awardMonth, proofFilename, proofPath, initialStatus }) {
+  async create({ studentId, academicYearId, moduleId, itemId, score, description, awardMonth, proofFilename, proofPath, proofFiles, initialStatus }) {
     const status = initialStatus || 'pending';
     const [result] = await pool.query(
-      `INSERT INTO submissions (student_id, academic_year_id, module_id, item_id, score, description, award_month, proof_filename, proof_path, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [studentId, academicYearId, moduleId, itemId, score, description, awardMonth || null, proofFilename, proofPath, status]
+      `INSERT INTO submissions (student_id, academic_year_id, module_id, item_id, score, description, award_month, proof_filename, proof_path, proof_files, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [studentId, academicYearId, moduleId, itemId, score, description, awardMonth || null, proofFilename, proofPath, proofFiles || null, status]
     );
-    return { id: result.insertId, student_id: studentId, academic_year_id: academicYearId, module_id: moduleId, item_id: itemId, score, description, award_month: awardMonth || null, proof_filename: proofFilename, proof_path: proofPath, status };
+    return { id: result.insertId, student_id: studentId, academic_year_id: academicYearId, module_id: moduleId, item_id: itemId, score, description, award_month: awardMonth || null, proof_filename: proofFilename, proof_path: proofPath, proof_files: proofFiles || null, status };
   },
 
   // 仅允许更新白名单字段（status 仅允许 'rejected'→'pending' 重置）
-  async update(id, data) {
-    const allowedFields = ['score', 'description', 'award_month', 'proof_filename', 'proof_path', 'status'];
+  async update(id, data, statusList = ['pending', 'rejected']) {
+    const allowedFields = ['module_id', 'item_id', 'score', 'description', 'award_month', 'proof_filename', 'proof_path', 'proof_files', 'status', 'rejection_reason', 'assistant_assignee_id', 'assistant_reviewer_id', 'assistant_review_at', 'counselor_reviewer_id', 'counselor_review_at'];
     const fields = [];
     const values = [];
     for (const k of allowedFields) {
@@ -120,9 +120,13 @@ const Submission = {
       }
     }
     if (fields.length === 0) return;
-    values.push(id);
-    // pending 和 rejected 的都可以修改
-    await pool.query('UPDATE submissions SET ' + fields.join(', ') + ' WHERE id = ? AND status IN (\'pending\',\'rejected\')', values);
+    const statuses = Array.isArray(statusList) && statusList.length > 0 ? statusList : ['pending', 'rejected'];
+    values.push(id, ...statuses);
+    const [result] = await pool.query(
+      'UPDATE submissions SET ' + fields.join(', ') + ' WHERE id = ? AND status IN (' + statuses.map(() => '?').join(',') + ')',
+      values
+    );
+    return result.affectedRows;
   },
 
   /**
@@ -132,11 +136,27 @@ const Submission = {
    *   辅导员在有助理的班级：不能跳过助理直接审批
    *   任一方 reject → rejected
    */
-  async approve(id, role, userId) {
+  async approve(id, role, userId, score) {
     // 先获取当前状态
     const [rows] = await pool.query('SELECT * FROM submissions WHERE id = ?', [id]);
     if (rows.length === 0) throw new Error('提交记录不存在');
     const sub = rows[0];
+
+    const hasScore = score !== undefined && score !== null && score !== '';
+    const nextScore = hasScore ? Number(score) : Number(sub.score);
+    if (!Number.isFinite(nextScore) || nextScore < 0 || nextScore > 9999) {
+      throw new Error('核准分数必须是有效的非负数字');
+    }
+
+    if (role === 'admin' || role === 'college_admin') {
+      const [result] = await pool.query(
+        'UPDATE submissions SET score = ?, counselor_reviewer_id = ?, counselor_review_at = NOW(), status = ?, rejection_reason = NULL WHERE id = ? AND status IN (?, ?)',
+        [nextScore, userId, 'approved', id, 'pending', 'assistant_approved']
+      );
+      if (result.affectedRows !== 1) throw new Error('该材料状态已变化，请刷新后重试');
+      const [updated] = await pool.query('SELECT * FROM submissions WHERE id = ?', [id]);
+      return updated[0];
+    }
 
     if (role === 'assistant') {
       // 助理审批：只能审批 pending 状态的
@@ -147,8 +167,8 @@ const Submission = {
         throw new Error('该材料未分配给当前班委');
       }
       const [result] = await pool.query(
-        'UPDATE submissions SET assistant_reviewer_id = ?, assistant_review_at = NOW(), status = ? WHERE id = ? AND status = ? AND assistant_assignee_id = ?',
-        [userId, 'assistant_approved', id, 'pending', userId]
+        'UPDATE submissions SET score = ?, assistant_reviewer_id = ?, assistant_review_at = NOW(), status = ?, rejection_reason = NULL WHERE id = ? AND status = ? AND assistant_assignee_id = ?',
+        [nextScore, userId, 'assistant_approved', id, 'pending', userId]
       );
       if (result.affectedRows !== 1) throw new Error('该材料状态已变化，请刷新后重试');
       const [updated] = await pool.query('SELECT * FROM submissions WHERE id = ?', [id]);
@@ -180,15 +200,15 @@ const Submission = {
         }
         // 无助理的班级，辅导员可以直接审批
         const [result] = await pool.query(
-          'UPDATE submissions SET counselor_reviewer_id = ?, counselor_review_at = NOW(), status = ? WHERE id = ? AND status = ?',
-          [userId, 'approved', id, 'pending']
+          'UPDATE submissions SET score = ?, counselor_reviewer_id = ?, counselor_review_at = NOW(), status = ?, rejection_reason = NULL WHERE id = ? AND status = ?',
+          [nextScore, userId, 'approved', id, 'pending']
         );
         if (result.affectedRows !== 1) throw new Error('该材料状态已变化，请刷新后重试');
       } else if (sub.status === 'assistant_approved') {
         // 助理已审批，辅导员直接通过
         const [result] = await pool.query(
-          'UPDATE submissions SET counselor_reviewer_id = ?, counselor_review_at = NOW(), status = ? WHERE id = ? AND status = ?',
-          [userId, 'approved', id, 'assistant_approved']
+          'UPDATE submissions SET score = ?, counselor_reviewer_id = ?, counselor_review_at = NOW(), status = ?, rejection_reason = NULL WHERE id = ? AND status = ?',
+          [nextScore, userId, 'approved', id, 'assistant_approved']
         );
         if (result.affectedRows !== 1) throw new Error('该材料状态已变化，请刷新后重试');
       } else {
@@ -213,6 +233,16 @@ const Submission = {
     }
     if (role === 'assistant' && Number(rows[0].assistant_assignee_id) !== Number(userId)) {
       throw new Error('该材料未分配给当前班委');
+    }
+    if (role === 'admin' || role === 'college_admin') {
+      const [result] = await pool.query(
+        `UPDATE submissions SET status = 'rejected', rejection_reason = ?, counselor_reviewer_id = ?, counselor_review_at = NOW()
+         WHERE id = ? AND status IN ('pending', 'assistant_approved')`,
+        [String(reason).trim(), userId, id]
+      );
+      if (result.affectedRows !== 1) throw new Error('该材料状态已变化，请刷新后重试');
+      const [updated] = await pool.query('SELECT * FROM submissions WHERE id = ?', [id]);
+      return updated[0];
     }
     const reviewerField = role === 'assistant' ? 'assistant_reviewer_id' : 'counselor_reviewer_id';
     const reviewAtField = role === 'assistant' ? 'assistant_review_at' : 'counselor_review_at';

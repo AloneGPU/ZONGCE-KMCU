@@ -22,13 +22,17 @@ async function assignPendingForClass(className, grade) {
 
     await conn.beginTransaction();
     const [assistants] = await conn.query(
-      `SELECT u.id AS user_id
+      `SELECT DISTINCT u.id AS user_id
        FROM students s
        JOIN users u ON u.id = s.user_id
-       WHERE s.is_assistant = TRUE AND s.class_name = ? AND s.grade = ?
+       LEFT JOIN assistant_review_scopes ars ON ars.user_id = u.id
+       WHERE s.is_assistant = TRUE AND (
+         (s.class_name = ? AND s.grade = ?)
+         OR (ars.class_name = ? AND ars.grade = ?)
+       )
        ORDER BY u.id
        FOR UPDATE`,
-      [cleanClassName, cleanGrade]
+      [cleanClassName, cleanGrade, cleanClassName, cleanGrade]
     );
     const assistantIds = assistants.map(item => Number(item.user_id));
     if (assistantIds.length === 0) {

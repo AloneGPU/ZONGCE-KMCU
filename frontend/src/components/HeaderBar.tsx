@@ -74,7 +74,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   const [passwordCodeCooldown, setPasswordCodeCooldown] = useState(0);
 
   const canPost = currentUser.role === 'admin';
-  const canChangePasswordWithEmail = currentUser.role === 'student' || currentUser.role === 'assistant' || currentUser.role === 'counselor';
+  const canChangePasswordWithEmail = currentUser.role === 'student' || currentUser.role === 'assistant' || currentUser.role === 'counselor' || currentUser.role === 'college_admin';
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -182,6 +182,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     switch (role) {
       case 'admin':
         return { label: '管理员', bg: 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800', icon: Shield };
+      case 'college_admin':
+        return { label: '学院管理员', bg: 'bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800', icon: Shield };
       case 'counselor':
         return { label: '辅导员', bg: 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800', icon: UserCheck };
       case 'assistant':
@@ -420,7 +422,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1">{a.content}</div>
                     <div className="text-[10px] text-slate-400 mt-1.5 flex items-center justify-between gap-2">
-                      <span className="min-w-0 truncate">{a.sender_name} · {a.sender_role === 'admin' ? '管理员' : a.sender_role === 'counselor' ? '辅导员' : a.sender_role === 'assistant' ? '班委' : '学生'}</span>
+                      <span className="min-w-0 truncate">{a.sender_name} · {a.sender_role === 'admin' ? '管理员' : a.sender_role === 'college_admin' ? '学院管理员' : a.sender_role === 'counselor' ? '辅导员' : a.sender_role === 'assistant' ? '班委' : '学生'}</span>
                       <span className="shrink-0">{new Date(a.created_at).toLocaleDateString('zh-CN')}</span>
                     </div>
                   </div>
@@ -509,8 +511,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
       </div>
 
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/60 p-2 backdrop-blur-sm sm:items-center sm:p-3">
+          <div className="my-2 w-full max-w-md min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:my-auto sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">邮箱验证修改密码</h3>
@@ -531,13 +533,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   type="email"
                   value={passwordEmail}
                   onChange={e => setPasswordEmail(e.target.value)}
-                  placeholder="请输入注册时绑定的邮箱"
+                  placeholder="已绑定邮箱，或首次绑定时填写新邮箱"
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">验证码</label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     type="text"
                     value={passwordCode}
@@ -548,7 +550,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                   <button
                     onClick={sendPasswordCode}
                     disabled={isSendingPasswordCode || passwordCodeCooldown > 0}
-                    className="shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-blue-700"
+                    className="w-full shrink-0 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto dark:bg-slate-700 dark:hover:bg-blue-700"
                   >
                     {isSendingPasswordCode ? '发送中' : passwordCodeCooldown > 0 ? `${passwordCodeCooldown}s` : '发送验证码'}
                   </button>

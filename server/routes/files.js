@@ -14,10 +14,15 @@ const Score = require('../models/score');
 const { getCurrentYearId } = require('../utils/year');
 const { escapeHtml } = require('../utils/html');
 const { getUploadRoot } = require('../utils/upload');
+const { getProofFiles } = require('../utils/proofFiles');
 const { normalizeClassName, normalizeGrade, resolveManagedClassScope } = require('../utils/className');
 
 async function canAccessStudent(req, studentId, submission) {
   if (req.user.role === 'admin') return true;
+  if (req.user.role === 'college_admin') {
+    const target = await Student.findById(studentId);
+    return !!target && Number(target.college_id) === Number(req.user.collegeId);
+  }
 
   if (req.user.role === 'student' || req.user.role === 'assistant') {
     const student = await Student.findByUserId(req.user.userId);
@@ -58,7 +63,7 @@ function tokenFromQuery(req, res, next) {
 
 // ==================== 下载证明材料 ====================
 // GET /api/files/proof/:submissionId?token=xxx
-router.get('/proof/:submissionId', tokenFromQuery, authenticate, async (req, res) => {
+router.get('/proof/:submissionId/:fileIndex?', tokenFromQuery, authenticate, async (req, res) => {
   try {
     const subId = req.params.submissionId;
     const [rows] = await pool.query(
@@ -74,13 +79,16 @@ router.get('/proof/:submissionId', tokenFromQuery, authenticate, async (req, res
       return res.status(403).json({ error: '无权查看此文件' });
     }
 
-    if (!sub.proof_path) {
+    const proofFiles = getProofFiles(sub);
+    const fileIndex = req.params.fileIndex === undefined ? 0 : parseInt(req.params.fileIndex, 10);
+    const proof = proofFiles[fileIndex];
+    if (!proof) {
       return res.status(404).json({ error: '该提交没有证明材料' });
     }
 
     // 文件存储的相对路径转绝对路径
     const uploadRoot = getUploadRoot();
-    const filePath = path.resolve(uploadRoot, sub.proof_path);
+    const filePath = path.resolve(uploadRoot, proof.path);
     if (!filePath.startsWith(uploadRoot + path.sep)) {
       return res.status(400).json({ error: '文件路径非法' });
     }
@@ -89,12 +97,12 @@ router.get('/proof/:submissionId', tokenFromQuery, authenticate, async (req, res
     }
 
     // 根据文件类型决定内联预览还是下载，显式设置 Content-Type
-    const ext = path.extname(sub.proof_filename || '').toLowerCase();
+    const ext = path.extname(proof.filename || '').toLowerCase();
     const mimeMap = { '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
     const mimeType = mimeMap[ext] || 'application/octet-stream';
     const inlineTypes = ['.pdf', '.jpg', '.jpeg', '.png', '.gif'];
     const disposition = inlineTypes.includes(ext) ? 'inline' : 'attachment';
-    const rawName = sub.proof_filename || 'file';
+    const rawName = proof.filename || 'file';
     const encodedName = encodeURIComponent(rawName);
     const asciiFallbackName = rawName
       .replace(/[^\x20-\x7E]/g, '_')
@@ -153,7 +161,7 @@ router.get('/export-pdf/:studentId', tokenFromQuery, authenticate, async (req, r
 
     // 计算总分
     const totalScore = await Score.calcTotalScore(studentId, yearId);
-    const rankings = await Score.getRankings(yearId, student.class_name);
+    const rankings = await Score.getRankings(yearId, student.class_name, student.grade);
     const myRank = rankings.find(r => r.studentId == studentId);
 
     // 生成一份 HTML 报告，浏览器可直接打印/导出 PDF
@@ -224,7 +232,7 @@ router.get('/export-pdf/:studentId', tokenFromQuery, authenticate, async (req, r
   </div>
 
   <div class="score-box">
-    <div class="total">${totalScore.toFixed(1)}</div>
+    <div class="total">${totalScore}</div>
     <div class="rank">班级排名：第 ${myRank ? myRank.rank : '-'} 名（共 ${rankings.length} 人）</div>
   </div>
 

@@ -169,6 +169,14 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ error: '文件大小不能超过 10MB' });
   }
 
+  if (err.code === 'LIMIT_FILE_COUNT') {
+    return res.status(400).json({ error: '单次最多上传 10 张图片' });
+  }
+
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({ error: '单次最多上传 10 张图片' });
+  }
+
   res.status(500).json({ error: '服务器内部错误' });
 });
 

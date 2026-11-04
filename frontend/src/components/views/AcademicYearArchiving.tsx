@@ -30,7 +30,7 @@ export const AcademicYearArchiving: React.FC<AcademicYearArchivingProps> = ({
     if (!item.id || savingDeadlineId !== null) return;
     setSavingDeadlineId(item.id);
     try {
-      await apiService.updateYearDeadline(currentUser.role as 'admin' | 'counselor', item.id, deadline);
+      await apiService.updateYearDeadline(currentUser.role as 'admin' | 'college_admin' | 'counselor', item.id, deadline);
       onUpdateAcademicYears(academicYears.map(year =>
         year.id === item.id ? { ...year, deadline: deadline || undefined } : year
       ));

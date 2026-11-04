@@ -58,6 +58,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { key: 'archiving', label: '学年归档管理', icon: Archive, category: '报表中心' }
         ];
 
+      case 'college_admin':
+        return [
+          { key: 'overview', label: '学院数据概览', icon: LayoutDashboard, category: '学院管理' },
+          { key: 'audit-center', label: '学院材料复核中心', icon: FileCheck2, category: '学院管理', badge: pendingCount },
+          { key: 'user-import', label: '教师与学生管理', icon: Users, category: '学院管理' },
+          { key: 'excel-import', label: '学院成绩导入', icon: Upload, category: '学院管理' },
+          { key: 'score-export', label: '学院综测成绩导出', icon: FileSpreadsheet, category: '报表中心' }
+        ];
+
       case 'counselor':
         return [
           { key: 'overview', label: '年级综测看板', icon: PieChart, category: '管理控制' },

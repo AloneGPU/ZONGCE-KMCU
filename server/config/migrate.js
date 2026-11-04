@@ -116,6 +116,13 @@ async function migrationSatisfied(conn, file) {
     );
     return rows[0].total > 0;
   }
+  if (file.startsWith('025_')) return await columnExists(conn, 'submissions', 'proof_files');
+  if (file.startsWith('026_')) {
+    // 026 由兼容迁移逻辑执行：即使 college_id 已在上一次失败尝试中添加，
+    // 仍需继续补齐索引和外键，不能仅凭字段存在就标记完成。
+    return false;
+  }
+  if (file.startsWith('027_')) return await tableExists(conn, 'assistant_review_scopes');
   return false;
 }
 
@@ -123,6 +130,35 @@ async function hasProtectedData(conn) {
   const [submissionRows] = await conn.query('SELECT COUNT(*) as total FROM submissions');
   const [scoreRows] = await conn.query('SELECT COUNT(*) as total FROM imported_scores');
   return submissionRows[0].total > 0 || scoreRows[0].total > 0;
+}
+
+async function runOptional(conn, sql, label) {
+  try {
+    await conn.query(sql);
+    console.log('  已处理:', label);
+    return true;
+  } catch (err) {
+    const ignorable = [
+      'ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME', 'ER_TABLE_EXISTS_ERROR',
+      'ER_DUP_CONSTRAINT_NAME',
+      'ER_CANT_DROP_FIELD_OR_KEY', 'ER_CANT_CREATE_TABLE', 'ER_CHECK_CONSTRAINT_VIOLATED',
+      'ER_PARSE_ERROR', 'ER_NOT_SUPPORTED_YET'
+    ];
+    if (ignorable.includes(err.code)) {
+      console.warn('  跳过兼容项:', label, '-', err.message);
+      return false;
+    }
+    throw err;
+  }
+}
+
+async function applyCollegeAdminMigration(conn) {
+  await runOptional(conn, 'ALTER TABLE users ADD COLUMN college_id INT NULL AFTER role', 'users.college_id');
+
+  // 项目历史迁移只使用 ADD COLUMN / ADD CONSTRAINT FOREIGN KEY / CREATE INDEX。
+  // 服务器上的旧版 MySQL/MariaDB 不支持 DROP CHECK，因此不改动旧角色约束。
+  await runOptional(conn, 'ALTER TABLE users ADD CONSTRAINT fk_users_college FOREIGN KEY (college_id) REFERENCES colleges(id) ON DELETE SET NULL', 'users.college_id foreign key');
+  await runOptional(conn, 'CREATE INDEX idx_users_college ON users(college_id)', 'idx_users_college');
 }
 
 async function migrate() {
@@ -158,6 +194,13 @@ async function migrate() {
       continue;
     }
 
+    if (file.startsWith('026_')) {
+      console.log('执行兼容迁移:', file);
+      await applyCollegeAdminMigration(conn);
+      await conn.query('INSERT INTO schema_migrations (filename) VALUES (?)', [file]);
+      continue;
+    }
+
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
     const destructive = /DELETE\s+FROM\s+(submissions|imported_scores|scoring_items|scoring_modules)/i.test(sql);
     if (destructive && await hasProtectedData(conn) && process.env.ALLOW_DESTRUCTIVE_MIGRATIONS !== 'true') {
@@ -176,7 +219,7 @@ async function migrate() {
       try {
         await conn.query(stmt);
       } catch (err) {
-        if (['ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME', 'ER_TABLE_EXISTS_ERROR'].includes(err.code)) {
+        if (['ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME', 'ER_TABLE_EXISTS_ERROR', 'ER_CANT_DROP_FIELD_OR_KEY'].includes(err.code)) {
           console.warn('  跳过已存在对象:', err.message);
         } else {
           throw err;

@@ -334,6 +334,26 @@
     -webkit-backdrop-filter: blur(18px) saturate(128%);
   }
 
+  @media (max-width: 639px) {
+    .login-stage {
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .login-shell {
+      border-radius: 0;
+      border-left: 0;
+      border-right: 0;
+      box-shadow: none;
+    }
+
+    .login-form-panel {
+      min-height: 100%;
+      width: 100%;
+      overflow-wrap: anywhere;
+    }
+  }
+
   .dark .login-form-panel {
     background: rgba(9, 14, 21, 0.88);
   }

@@ -17,6 +17,14 @@ interface ExportClassOption {
   label: string;
 }
 
+type RankedDisplaySummary = StudentScoreSummary & {
+  displayRank: number;
+  displayScore: number;
+  displayWeighted: number | null;
+  displayModule: string | null;
+  displayWeight: number | null;
+};
+
 const EXPORT_PROJECTS = [
   { value: 'comprehensive', label: '综合', moduleId: null },
   { value: 'aesthetics', label: '美育单项', moduleId: 5 },
@@ -26,6 +34,15 @@ const EXPORT_PROJECTS = [
   { value: 'labor', label: '劳动单项', moduleId: 6 },
   { value: 'ability', label: '能力单项', moduleId: 4 },
 ];
+
+const MODULE_TABLE_CONFIG = {
+  moral: { label: '德育', rawKey: 'moralFinal', weightedKey: 'moralWeighted', weightKey: 'moralWeight' },
+  intellectual: { label: '智育', rawKey: 'intellectualFinal', weightedKey: 'intellectualWeighted', weightKey: 'intellectualWeight' },
+  physical: { label: '体育', rawKey: 'physicalFinal', weightedKey: 'physicalWeighted', weightKey: 'physicalWeight' },
+  ability: { label: '能力', rawKey: 'abilityFinal', weightedKey: 'abilityWeighted', weightKey: 'abilityWeight' },
+  aesthetics: { label: '美育', rawKey: 'aestheticsFinal', weightedKey: 'aestheticsWeighted', weightKey: 'aestheticsWeight' },
+  labor: { label: '劳动', rawKey: 'laborFinal', weightedKey: 'laborWeighted', weightKey: 'laborWeight' },
+} as const;
 
 export const ExportCenter: React.FC<ExportCenterProps> = ({
   summaries,
@@ -43,7 +60,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
   const [managedGrade, setManagedGrade] = useState('');
   const [managedClassesLoaded, setManagedClassesLoaded] = useState(false);
 
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'college_admin';
   const availableClassOptions = useMemo(() => {
     const map = new Map<string, ExportClassOption>();
     const addOption = (className: string, grade: string) => {
@@ -129,7 +146,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
     else if (!isAdmin && selectedClassKey === 'all' && availableClassOptions[0]) setSelectedClassKey(availableClassOptions[0].key);
   }, [isAdmin, selectedClassKey, availableClassOptions]);
 
-  const filteredSummaries = summaries.filter(s => {
+  const scopedSummaries = summaries.filter(s => {
     const matchesClass = selectedClassKey === 'all' || (
       selectedClassOption
         ? sameClassScope(
@@ -142,17 +159,70 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
         : true
     );
     const matchesGrade = selectedGrade === 'all' || resolveStudentGrade(s.grade, s.majorClass, s.studentId) === normalizeGrade(selectedGrade);
-    const matchesSearch = s.studentName.includes(searchQuery) || s.studentId.includes(searchQuery);
-    return matchesClass && matchesGrade && matchesSearch;
+    return matchesClass && matchesGrade;
   });
 
-  const scoreText = (value: unknown) => Number(value || 0).toFixed(1);
+  const rankedScopedSummaries = useMemo(() => {
+    const moduleConfig = MODULE_TABLE_CONFIG[selectedProject as keyof typeof MODULE_TABLE_CONFIG];
+    const scoreOf = (item: StudentScoreSummary) => moduleConfig
+      ? Number(item[moduleConfig.rawKey] || 0)
+      : Number(item.totalScore || 0);
+    const groups = new Map<string, StudentScoreSummary[]>();
+    scopedSummaries.forEach(item => {
+      const key = classScopeKey(item.majorClass, item.grade, item.studentId);
+      const group = groups.get(key) || [];
+      group.push(item);
+      groups.set(key, group);
+    });
+
+    const ranked: RankedDisplaySummary[] = [];
+    Array.from(groups.entries())
+      .sort(([left], [right]) => left.localeCompare(right, 'zh-Hans-CN', { numeric: true }))
+      .forEach(([, group]) => {
+        const sorted = [...group].sort((a, b) =>
+          scoreOf(b) - scoreOf(a) ||
+          String(a.studentId).localeCompare(String(b.studentId), 'zh-Hans-CN', { numeric: true })
+        );
+        let previousScore: number | null = null;
+        let currentRank = 0;
+        sorted.forEach(item => {
+          const score = scoreOf(item);
+          if (previousScore === null || score !== previousScore) {
+            currentRank += 1;
+            previousScore = score;
+          }
+          ranked.push({
+            ...item,
+            classRank: currentRank,
+            classTotal: sorted.length,
+            displayRank: currentRank,
+            displayScore: score,
+            displayWeighted: moduleConfig ? Number(item[moduleConfig.weightedKey] || 0) : null,
+            displayModule: moduleConfig?.label || null,
+            displayWeight: moduleConfig ? Number(item[moduleConfig.weightKey] || 0) : null,
+          });
+        });
+      });
+    return ranked;
+  }, [scopedSummaries, selectedProject]);
+
+  const rankedFilteredSummaries = useMemo(() => {
+    const keyword = searchQuery.trim();
+    if (!keyword) return rankedScopedSummaries;
+    return rankedScopedSummaries.filter(item =>
+      item.studentName.includes(keyword) || item.studentId.includes(keyword)
+    );
+  }, [rankedScopedSummaries, searchQuery]);
+
+  const selectedModuleConfig = MODULE_TABLE_CONFIG[selectedProject as keyof typeof MODULE_TABLE_CONFIG];
+
+  const scoreText = (value: unknown) => String(Number(value || 0));
 
   const handleExportExcel = () => {
     const className = selectedClassOption?.className || '';
     const classGrade = selectedClassOption?.grade || '';
     if (!isAdmin && !className) return alert('未找到可导出的负责班级');
-    const root = currentUser.role === 'admin' ? '/admin' : currentUser.role === 'assistant' ? '/assistant' : '/counselor';
+    const root = (currentUser.role === 'admin' || currentUser.role === 'college_admin') ? '/admin' : currentUser.role === 'assistant' ? '/assistant' : '/counselor';
     const project = EXPORT_PROJECTS.find(item => item.value === selectedProject) || EXPORT_PROJECTS[0];
     const params = new URLSearchParams();
     params.set('format', 'xlsx');
@@ -177,7 +247,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
     const className = selectedClassOption?.className || '';
     const classGrade = selectedClassOption?.grade || '';
     const grade = isAdmin && selectedGrade !== 'all' ? selectedGrade : '';
-    const root = currentUser.role === 'admin' ? '/admin' : currentUser.role === 'assistant' ? '/assistant' : '/counselor';
+    const root = (currentUser.role === 'admin' || currentUser.role === 'college_admin') ? '/admin' : currentUser.role === 'assistant' ? '/assistant' : '/counselor';
     const params = new URLSearchParams();
     params.set('yearId', activeAcademicYear);
     if (className) params.set('className', className);
@@ -360,7 +430,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
           </div>
 
           <div className="text-slate-400 font-semibold text-left lg:text-right shrink-0">
-            已检索到 <span className="text-amber-600 font-bold">{filteredSummaries.length}</span> 名学生
+            已检索到 <span className="text-amber-600 font-bold">{rankedFilteredSummaries.length}</span> 名学生
           </div>
         </div>
       </div>
@@ -368,31 +438,41 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
       {/* Main Score & Rank Table */}
       <div className="surface-elevated rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-[920px] w-full text-left text-xs">
+          <table className={`w-full text-left text-xs ${selectedModuleConfig ? 'min-w-[680px]' : 'min-w-[920px]'}`}>
             <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800 uppercase">
               <tr>
-                <th className="px-3 py-3 text-center">排名</th>
+                <th className="px-3 py-3 text-center">{selectedModuleConfig ? '单项班级排名' : '班级总分排名'}</th>
                 <th className="px-4 py-3">学号</th>
                 <th className="px-4 py-3">姓名</th>
                 <th className="px-3 py-3">班级</th>
-                <th className="px-3 py-3 text-center">德育(20%)</th>
-                <th className="px-3 py-3 text-center">智育(40%)</th>
-                <th className="px-3 py-3 text-center">体育(10%)</th>
-                <th className="px-3 py-3 text-center">能力(10%)</th>
-                <th className="px-3 py-3 text-center">美育(10%)</th>
-                <th className="px-3 py-3 text-center">劳动(10%)</th>
-                <th className="px-4 py-3 text-right">综测总分</th>
+                {selectedModuleConfig ? (
+                  <>
+                    <th className="px-3 py-3 text-center">{selectedModuleConfig.label}合计分</th>
+                    <th className="px-3 py-3 text-center">{selectedModuleConfig.label}折算分</th>
+                    <th className="px-3 py-3 text-center">权重</th>
+                  </>
+                ) : (
+                  <>
+                    <th className="px-3 py-3 text-center">德育(20%)</th>
+                    <th className="px-3 py-3 text-center">智育(40%)</th>
+                    <th className="px-3 py-3 text-center">体育(10%)</th>
+                    <th className="px-3 py-3 text-center">能力(10%)</th>
+                    <th className="px-3 py-3 text-center">美育(10%)</th>
+                    <th className="px-3 py-3 text-center">劳动(10%)</th>
+                    <th className="px-4 py-3 text-right">综测总分</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredSummaries.length === 0 ? (
+              {rankedFilteredSummaries.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={selectedModuleConfig ? 7 : 11} className="px-4 py-8 text-center text-slate-400">
                     没有符合筛选条件的学生记录
                   </td>
                 </tr>
               ) : (
-                filteredSummaries.map(item => (
+                rankedFilteredSummaries.map(item => (
                   <tr key={item.studentId} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                     <td className="px-3 py-3 text-center">
                       <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-mono font-bold text-[11px] ${
@@ -400,7 +480,7 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
                         item.classRank === 2 ? 'bg-slate-300 text-slate-800' :
                         item.classRank === 3 ? 'bg-amber-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'
                       }`}>
-                        {item.classRank || '-'}
+                        {item.displayRank || '-'}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-mono font-semibold text-slate-900 dark:text-white">
@@ -410,29 +490,31 @@ export const ExportCenter: React.FC<ExportCenterProps> = ({
                       {item.studentName}
                     </td>
                     <td className="px-3 py-3 text-slate-500">
-                      {item.majorClass}
+                      {selectedClassKey === 'all' ? `${item.grade} ${item.majorClass}` : item.majorClass}
                     </td>
-                    <td className="px-3 py-3 text-center font-mono">
-                      {scoreText(item.moralFinal)}
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono">
-                      {scoreText(item.intellectualFinal)}
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono">
-                      {scoreText(item.physicalFinal)}
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono">
-                      {scoreText(item.abilityFinal)}
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono">
-                      {scoreText(item.aestheticsFinal)}
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono">
-                      {scoreText(item.laborFinal)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-amber-600 dark:text-amber-400 font-mono text-sm">
-                      {item.totalScore} 分
-                    </td>
+                    {selectedModuleConfig ? (
+                      <>
+                        <td className="px-3 py-3 text-center font-mono">
+                          {scoreText(item.displayScore)}
+                        </td>
+                        <td className="px-3 py-3 text-center font-mono">
+                          {scoreText(item.displayWeighted)}
+                        </td>
+                        <td className="px-3 py-3 text-center font-mono text-slate-500">
+                          {scoreText(item.displayWeight)}%
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-3 py-3 text-center font-mono">{scoreText(item.moralWeighted)}</td>
+                        <td className="px-3 py-3 text-center font-mono">{scoreText(item.intellectualWeighted)}</td>
+                        <td className="px-3 py-3 text-center font-mono">{scoreText(item.physicalWeighted)}</td>
+                        <td className="px-3 py-3 text-center font-mono">{scoreText(item.abilityWeighted)}</td>
+                        <td className="px-3 py-3 text-center font-mono">{scoreText(item.aestheticsWeighted)}</td>
+                        <td className="px-3 py-3 text-center font-mono">{scoreText(item.laborWeighted)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-amber-600 dark:text-amber-400 font-mono text-sm">{item.totalScore} 分</td>
+                      </>
+                    )}
                   </tr>
                 ))
               )}

@@ -12,6 +12,7 @@ interface StudentDashboardProps {
   activeAcademicYear: string;
   academicYears: AcademicYearConfig[];
   onOpenUploadModal: () => void;
+  onEditMaterial?: (material: ProofMaterial) => void;
   onDeleteMaterial: (id: string) => void;
   onNavigateToPDF: () => void;
   focusView?: 'overview' | 'materials';
@@ -25,12 +26,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   activeAcademicYear,
   academicYears,
   onOpenUploadModal,
+  onEditMaterial,
   onDeleteMaterial,
   onNavigateToPDF,
   focusView = 'overview'
 }) => {
+  const formatScore = (value: number) => String(value);
   const [materialFilter, setMaterialFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
-  const [previewMaterialId, setPreviewMaterialId] = useState<string | null>(null);
+  const [previewMaterialKey, setPreviewMaterialKey] = useState<string | null>(null);
 
   const studentMaterials = materials.filter(
     m => m.studentId === currentUser.studentId && m.academicYear === activeAcademicYear
@@ -128,16 +131,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   key={mat.id}
                   className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 hover:border-blue-200 dark:hover:border-blue-800 transition-all"
                 >
-                  {mat.proofUrl && (
+                  {(mat.proofUrls || (mat.proofUrl ? [mat.proofUrl] : [])).map((proofUrl, index) => (
                     <ImageLightbox
-                      src={mat.proofUrl}
-                      alt={`${mat.title}证明材料`}
-                      open={previewMaterialId === mat.id}
-                      onOpen={() => setPreviewMaterialId(mat.id)}
-                      onClose={() => setPreviewMaterialId(null)}
+                      key={`${mat.id}-${index}`}
+                      src={proofUrl}
+                      alt={`${mat.title}证明材料 ${index + 1}`}
+                      open={previewMaterialKey === `${mat.id}-${index}`}
+                      onOpen={() => setPreviewMaterialKey(`${mat.id}-${index}`)}
+                      onClose={() => setPreviewMaterialKey(null)}
                       className="aspect-square h-16 w-16 shrink-0 border border-slate-200 dark:border-slate-700 sm:h-20 sm:w-20"
                     />
-                  )}
+                  ))}
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900 rounded">
@@ -286,7 +290,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               {summary ? `${summary.gradeRank} / ${summary.gradeTotal}` : '--'}
             </div>
             <div className="text-[10px] text-slate-500 dark:text-slate-300 mt-1">
-              全年级排名
+              本学院年级排名
             </div>
           </div>
 
@@ -310,22 +314,22 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
-            { title: '德育', weight: '20%', base: summary?.moralBase ?? 60, bonus: summary?.moralBonus ?? 0, deduction: summary?.moralDeduction ?? 0, final: summary?.moralFinal ?? 60, color: 'from-emerald-500 to-teal-600' },
-            { title: '智育', weight: '40%', base: summary?.intellectualBase ?? 85, bonus: summary?.intellectualBonus ?? 0, deduction: 0, final: summary?.intellectualFinal ?? 85, color: 'from-blue-500 to-blue-600' },
-            { title: '体育', weight: '10%', base: summary?.physicalBase ?? 50, bonus: summary?.physicalBonus ?? 0, deduction: 0, final: summary?.physicalFinal ?? 50, color: 'from-purple-500 to-violet-600' },
-            { title: '能力', weight: '10%', base: summary?.abilityBase ?? 60, bonus: summary?.abilityBonus ?? 0, deduction: 0, final: summary?.abilityFinal ?? 60, color: 'from-amber-500 to-orange-600' },
-            { title: '美育', weight: '10%', base: summary?.aestheticsBase ?? 60, bonus: summary?.aestheticsBonus ?? 0, deduction: 0, final: summary?.aestheticsFinal ?? 60, color: 'from-rose-500 to-pink-600' },
-            { title: '劳动', weight: '10%', base: summary?.laborBase ?? 60, bonus: summary?.laborBonus ?? 0, deduction: 0, final: summary?.laborFinal ?? 60, color: 'from-sky-500 to-cyan-600' }
+            { title: '德育', weight: summary?.moralWeight ?? 20, base: summary?.moralBase ?? 60, bonus: summary?.moralBonus ?? 0, deduction: summary?.moralDeduction ?? 0, raw: summary?.moralFinal ?? 60, weighted: summary?.moralWeighted ?? 12, color: 'from-emerald-500 to-teal-600' },
+            { title: '智育', weight: summary?.intellectualWeight ?? 40, base: summary?.intellectualBase ?? 85, bonus: summary?.intellectualBonus ?? 0, deduction: 0, raw: summary?.intellectualFinal ?? 85, weighted: summary?.intellectualWeighted ?? 34, color: 'from-blue-500 to-blue-600' },
+            { title: '体育', weight: summary?.physicalWeight ?? 10, base: summary?.physicalBase ?? 50, bonus: summary?.physicalBonus ?? 0, deduction: 0, raw: summary?.physicalFinal ?? 50, weighted: summary?.physicalWeighted ?? 5, color: 'from-purple-500 to-violet-600' },
+            { title: '能力', weight: summary?.abilityWeight ?? 10, base: summary?.abilityBase ?? 60, bonus: summary?.abilityBonus ?? 0, deduction: 0, raw: summary?.abilityFinal ?? 60, weighted: summary?.abilityWeighted ?? 6, color: 'from-amber-500 to-orange-600' },
+            { title: '美育', weight: summary?.aestheticsWeight ?? 10, base: summary?.aestheticsBase ?? 60, bonus: summary?.aestheticsBonus ?? 0, deduction: 0, raw: summary?.aestheticsFinal ?? 60, weighted: summary?.aestheticsWeighted ?? 6, color: 'from-rose-500 to-pink-600' },
+            { title: '劳动', weight: summary?.laborWeight ?? 10, base: summary?.laborBase ?? 60, bonus: summary?.laborBonus ?? 0, deduction: 0, raw: summary?.laborFinal ?? 60, weighted: summary?.laborWeighted ?? 6, color: 'from-sky-500 to-cyan-600' }
           ].map((mod, idx) => (
             <div key={idx} className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-slate-200/70 dark:border-slate-800/70 rounded-2xl p-5 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
                 <div>
                   <h4 className="font-bold text-xs text-slate-900 dark:text-white">{mod.title}</h4>
-                  <span className="text-[10px] text-slate-400">权重 {mod.weight}</span>
+                  <span className="text-[10px] text-slate-400">权重 {mod.weight}%</span>
                 </div>
                 <div className="text-right">
                   <span className="text-base font-bold text-slate-900 dark:text-white font-mono">
-                    {mod.final.toFixed(1)}
+                    {formatScore(mod.weighted)}
                   </span>
                   <span className="text-[10px] text-slate-400 block">折算分</span>
                 </div>
@@ -335,12 +339,12 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                 <div
                   className={`h-full bg-gradient-to-r ${mod.color} rounded-full transition-all duration-500`}
-                  style={{ width: `${Math.min(100, mod.final)}%` }}
+                  style={{ width: `${Math.min(100, mod.raw)}%` }}
                 />
               </div>
 
               <div className="flex justify-between text-[11px] text-slate-500 pt-1">
-                <span>基础分: {mod.base}</span>
+                <span>基础分: {formatScore(mod.base)} · 合计: {formatScore(mod.raw)}</span>
                 <div className="space-x-2">
                   <span className="text-emerald-600 font-semibold">加分: +{mod.bonus}</span>
                   {mod.deduction > 0 && (
@@ -386,16 +390,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 key={mat.id}
                 className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
               >
-                {mat.proofUrl && (
+                {(mat.proofUrls || (mat.proofUrl ? [mat.proofUrl] : [])).map((proofUrl, index) => (
                   <ImageLightbox
-                    src={mat.proofUrl}
-                    alt={`${mat.title}证明材料`}
-                    open={previewMaterialId === mat.id}
-                    onOpen={() => setPreviewMaterialId(mat.id)}
-                    onClose={() => setPreviewMaterialId(null)}
+                    key={`${mat.id}-${index}`}
+                    src={proofUrl}
+                    alt={`${mat.title}证明材料 ${index + 1}`}
+                    open={previewMaterialKey === `${mat.id}-${index}`}
+                    onOpen={() => setPreviewMaterialKey(`${mat.id}-${index}`)}
+                    onClose={() => setPreviewMaterialKey(null)}
                     className="aspect-square h-16 w-16 shrink-0 border border-slate-200 dark:border-slate-700 sm:h-20 sm:w-20"
                   />
-                )}
+                ))}
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 rounded">
@@ -443,7 +448,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     )}
                   </div>
 
-                  {mat.status !== 'approved' && !activeYearObj?.isLocked && (
+                  {mat.status === 'rejected' && !activeYearObj?.isLocked && (
+                    <button
+                      onClick={() => onEditMaterial?.(mat)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-100"
+                      title="修改后重新提交"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>修改</span>
+                    </button>
+                  )}
+                  {(mat.status === 'pending' || mat.status === 'rejected') && !activeYearObj?.isLocked && (
                     <button
                       onClick={() => onDeleteMaterial(mat.id)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg"

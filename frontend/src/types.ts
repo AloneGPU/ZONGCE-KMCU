@@ -1,10 +1,11 @@
-export type UserRole = 'admin' | 'counselor' | 'assistant' | 'student';
+export type UserRole = 'admin' | 'college_admin' | 'counselor' | 'assistant' | 'student';
 
 export interface User {
   id: string;
   username: string;
   name: string;
   role: UserRole;
+  collegeId?: string;
   avatar?: string;
   college: string;
   grade?: string;
@@ -55,6 +56,7 @@ export interface ProofMaterial {
   description: string;
   awardMonth?: string;
   proofUrl?: string;
+  proofUrls?: string[];
   requestedScore: number;
   approvedScore?: number;
   status: SubmissionStatus;
@@ -112,6 +114,21 @@ export interface StudentScoreSummary {
   abilityFinal: number;
   aestheticsFinal: number;
   laborFinal: number;
+
+  // Module scores after applying their comprehensive-evaluation weights.
+  moralWeighted: number;
+  intellectualWeighted: number;
+  physicalWeighted: number;
+  abilityWeighted: number;
+  aestheticsWeighted: number;
+  laborWeighted: number;
+
+  moralWeight: number;
+  intellectualWeight: number;
+  physicalWeight: number;
+  abilityWeight: number;
+  aestheticsWeight: number;
+  laborWeight: number;
 
   // Evaluation Grade & Cancel Eligibility
   evaluationGrade: '优秀' | '良好' | '中等' | '合格' | '不合格';

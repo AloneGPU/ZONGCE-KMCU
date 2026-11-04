@@ -20,7 +20,7 @@ function isStudentId(account) {
 
 function signToken(user) {
   return jwt.sign(
-    { userId: user.id, role: user.role, name: user.name, v: user.token_version || 0 },
+    { userId: user.id, role: user.role, collegeId: user.college_id || null, name: user.name, v: user.token_version || 0 },
     jwtSecret,
     { expiresIn: jwtExpiresIn }
   );
@@ -32,6 +32,10 @@ function cleanText(value, maxLength) {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function cleanEmail(value) {
+  return cleanText(value, 120).toLowerCase();
 }
 
 function makeCode() {
@@ -117,10 +121,18 @@ async function mapLoginUser(user) {
 
   if (user.role === 'counselor') {
     const teacher = await Teacher.findByUserId(user.id);
-    return { id: user.id, account: user.account, name: user.name, role: user.role, email: user.email || null, teacherInfo: teacher };
+    return { id: user.id, account: user.account, name: user.name, role: user.role, collegeId: user.college_id || teacher?.college_id || null, email: user.email || null, teacherInfo: teacher };
   }
 
-  return { id: user.id, account: user.account, name: user.name, role: user.role, email: user.email || null };
+  return {
+    id: user.id,
+    account: user.account,
+    name: user.name,
+    role: user.role,
+    collegeId: user.college_id || null,
+    college_name: user.college_name || null,
+    email: user.email || null
+  };
 }
 
 // ==================== 统一登录（本地账号） ====================
@@ -141,7 +153,10 @@ exports.login = async (req, res) => {
     await conn.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [user.id]);
     await conn.query('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [user.id]);
     const [updatedRows] = await conn.query(
-      'SELECT id, account, role, name, email, token_version FROM users WHERE id = ?',
+      `SELECT u.id, u.account, u.role, u.college_id, c.name AS college_name,
+              u.name, u.email, u.token_version
+       FROM users u LEFT JOIN colleges c ON c.id = u.college_id
+       WHERE u.id = ?`,
       [user.id]
     );
     await conn.commit();
@@ -161,7 +176,7 @@ exports.login = async (req, res) => {
 
 exports.sendEmailCode = async (req, res) => {
   try {
-    const email = cleanText(req.body.email, 120);
+    const email = cleanEmail(req.body.email);
     const purpose = cleanText(req.body.purpose, 20);
     const account = cleanText(req.body.account, 50);
     if (!isValidEmail(email)) return res.status(400).json({ error: '请输入正确的邮箱号' });
@@ -172,8 +187,14 @@ exports.sendEmailCode = async (req, res) => {
       if (used.length > 0) return res.status(400).json({ error: '该邮箱已被注册' });
     } else {
       if (!account) return res.status(400).json({ error: '请输入账号' });
-      const [users] = await pool.query('SELECT id FROM users WHERE account = ? AND email = ? LIMIT 1', [account, email]);
-      if (users.length === 0) return res.status(400).json({ error: '账号与邮箱不匹配' });
+      const [users] = await pool.query('SELECT id, email FROM users WHERE account = ? LIMIT 1', [account]);
+      const user = users[0];
+      if (!user) return res.status(400).json({ error: '账号与邮箱不匹配' });
+      if (user.email && cleanEmail(user.email) !== email) return res.status(400).json({ error: '账号与邮箱不匹配' });
+
+      // 导入学生通常没有邮箱，首次找回密码时允许用新邮箱完成绑定。
+      const [used] = await pool.query('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1', [email, user.id]);
+      if (used.length > 0) return res.status(400).json({ error: '该邮箱已被其他账号绑定' });
     }
 
     const [recent] = await pool.query(
@@ -206,7 +227,7 @@ exports.registerCounselor = async (req, res) => {
     const account = cleanText(req.body.account || req.body.employeeId, 50);
     const name = cleanText(req.body.name, 50);
     const password = String(req.body.password || '');
-    const email = cleanText(req.body.email, 120);
+    const email = cleanEmail(req.body.email);
     const emailCode = cleanText(req.body.emailCode || req.body.code, 10);
     const legacyMajor = cleanText(req.body.major, 100);
     const legacyClassName = standardizeClassNameForDisplay(cleanText(req.body.className || req.body.class_name, 100));
@@ -285,16 +306,16 @@ exports.registerCounselor = async (req, res) => {
     let userId;
     if (existingUser) {
       await conn.query(
-        `UPDATE users SET password_hash = ?, name = ?, email = ?, role = 'counselor', token_version = token_version + 1
+        `UPDATE users SET password_hash = ?, name = ?, email = ?, role = 'counselor', college_id = ?, token_version = token_version + 1
          WHERE id = ?`,
-        [passwordHash, name, email, existingUser.id]
+        [passwordHash, name, email, collegeId, existingUser.id]
       );
       userId = existingUser.id;
     } else {
       const [created] = await conn.query(
-        `INSERT INTO users (account, password_hash, role, name, email)
-         VALUES (?, ?, 'counselor', ?, ?)`,
-        [account, passwordHash, name, email]
+        `INSERT INTO users (account, password_hash, role, college_id, name, email)
+         VALUES (?, ?, 'counselor', ?, ?, ?)`,
+        [account, passwordHash, collegeId, name, email]
       );
       userId = created.insertId;
     }
@@ -356,7 +377,7 @@ exports.registerCounselor = async (req, res) => {
     await conn.rollback().catch(() => {});
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: '该工号或邮箱已存在' });
     console.error('辅导员注册错误:', err);
-    res.status(500).json({ error: '服务器内部错误' });
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : '服务器内部错误' });
   } finally {
     conn.release();
   }
@@ -369,7 +390,7 @@ exports.registerStudent = async (req, res) => {
     const account = cleanText(req.body.account || req.body.studentId, 20);
     const name = cleanText(req.body.name, 50);
     const password = String(req.body.password || '');
-    const email = cleanText(req.body.email, 120);
+    const email = cleanEmail(req.body.email);
     const emailCode = cleanText(req.body.emailCode || req.body.code, 10);
     const major = cleanText(req.body.major, 100);
     const rawClassName = cleanText(req.body.className || req.body.class_name, 100);
@@ -443,13 +464,13 @@ exports.registerStudent = async (req, res) => {
     let userId = existingUser ? existingUser.id : null;
     if (userId) {
       await conn.query(
-        "UPDATE users SET password_hash = ?, name = ?, email = ?, role = 'student', token_version = token_version + 1 WHERE id = ?",
-        [passwordHash, name, email, userId]
+        "UPDATE users SET password_hash = ?, name = ?, email = ?, role = 'student', college_id = ?, token_version = token_version + 1 WHERE id = ?",
+        [passwordHash, name, email, collegeId, userId]
       );
     } else {
       const [created] = await conn.query(
-        "INSERT INTO users (account, password_hash, role, name, email) VALUES (?, ?, 'student', ?, ?)",
-        [account, passwordHash, name, email]
+        "INSERT INTO users (account, password_hash, role, college_id, name, email) VALUES (?, ?, 'student', ?, ?, ?)",
+        [account, passwordHash, collegeId, name, email]
       );
       userId = created.insertId;
     }
@@ -485,7 +506,7 @@ exports.registerStudent = async (req, res) => {
     await conn.rollback().catch(() => {});
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: '该学号或邮箱已存在' });
     console.error('注册错误:', err);
-    res.status(500).json({ error: '服务器内部错误' });
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : '服务器内部错误' });
   } finally {
     conn.release();
   }
@@ -502,7 +523,7 @@ exports.resetPassword = async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const account = cleanText(req.body.account, 50);
-    const email = cleanText(req.body.email, 120);
+    const email = cleanEmail(req.body.email);
     const code = cleanText(req.body.code || req.body.emailCode, 10);
     const newPassword = String(req.body.newPassword || req.body.password || '');
     if (!account) return res.status(400).json({ error: '请输入账号' });
@@ -511,15 +532,21 @@ exports.resetPassword = async (req, res) => {
     if (newPassword.length < 6) return res.status(400).json({ error: '新密码至少需要 6 位' });
 
     await conn.beginTransaction();
-    const [users] = await conn.query('SELECT id FROM users WHERE account = ? AND email = ? FOR UPDATE', [account, email]);
-    if (users.length === 0) {
+    const [users] = await conn.query('SELECT id, email FROM users WHERE account = ? FOR UPDATE', [account]);
+    const user = users[0];
+    if (!user || (user.email && cleanEmail(user.email) !== email)) {
       await conn.rollback();
       return res.status(400).json({ error: '账号与邮箱不匹配' });
     }
+    const [used] = await conn.query('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1 FOR UPDATE', [email, user.id]);
+    if (used.length > 0) {
+      await conn.rollback();
+      return res.status(400).json({ error: '该邮箱已被其他账号绑定' });
+    }
     await consumeEmailCode(conn, email, 'reset_password', code);
     await conn.query(
-      'UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?',
-      [await bcrypt.hash(newPassword, 10), users[0].id]
+      'UPDATE users SET email = COALESCE(email, ?), password_hash = ?, token_version = token_version + 1 WHERE id = ?',
+      [email, await bcrypt.hash(newPassword, 10), user.id]
     );
     await conn.commit();
     res.json({ message: '密码已重置，请使用新密码登录' });

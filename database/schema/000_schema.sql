@@ -69,12 +69,14 @@ CREATE TABLE users (
   account VARCHAR(50) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   role VARCHAR(20) NOT NULL,
+  college_id INT DEFAULT NULL,
   name VARCHAR(50) NOT NULL,
   email VARCHAR(120) DEFAULT NULL,
   token_version INT NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uk_users_email (email),
-  CONSTRAINT chk_role CHECK (role IN ('admin','counselor','assistant','student'))
+  CONSTRAINT chk_role CHECK (role IN ('admin','college_admin','counselor','assistant','student')),
+  FOREIGN KEY (college_id) REFERENCES colleges(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 -- ============================================
@@ -175,6 +177,7 @@ CREATE TABLE submissions (
   award_month VARCHAR(7) DEFAULT NULL,
   proof_filename VARCHAR(255),
   proof_path VARCHAR(500),
+  proof_files TEXT DEFAULT NULL,
   status VARCHAR(20) DEFAULT 'pending',
   rejection_reason TEXT,
   counselor_reviewer_id INT,
@@ -307,6 +310,7 @@ CREATE TABLE schema_migrations (
 -- ============================================
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_account ON users(account);
+CREATE INDEX idx_users_college ON users(college_id);
 CREATE INDEX idx_class_options_college ON class_options(college_id);
 CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_action ON audit_logs(action);

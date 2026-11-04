@@ -22,4 +22,12 @@ function requireRole(...roles) {
   };
 }
 
+function requireScopedAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: '请先登录' });
+  if (!['admin', 'college_admin'].includes(req.user.role)) return res.status(403).json({ error: '权限不足，无法访问此资源' });
+  if (req.user.role === 'college_admin' && !req.user.collegeId) return res.status(403).json({ error: '二级管理员未绑定学院' });
+  next();
+}
+
 module.exports = requireRole;
+module.exports.requireScopedAdmin = requireScopedAdmin;

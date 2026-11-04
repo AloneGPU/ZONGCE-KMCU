@@ -35,7 +35,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   onNavigateTab
 }) => {
   const [selectedClassKey, setSelectedClassKey] = useState<string>('all');
-  const isAdminOrCounselor = currentUser.role === 'admin' || currentUser.role === 'counselor';
+  const isAdminOrCounselor = currentUser.role === 'admin' || currentUser.role === 'college_admin' || currentUser.role === 'counselor';
 
   // 班级筛选后的数据
   const availableClasses = useMemo(() => {
@@ -227,7 +227,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
           <div className="motion-lift bg-white/70 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 rounded-lg p-4 backdrop-blur-md">
             <div className="text-slate-500 dark:text-slate-400">在册评估学生</div>
             <div className="text-2xl font-bold font-mono text-slate-900 dark:text-white mt-1">{displaySummaries.length} 人</div>
-            <div className="text-[10px] text-blue-600 dark:text-blue-300 mt-1">数据科学与工程学院</div>
+            <div className="text-[10px] text-blue-600 dark:text-blue-300 mt-1">{currentUser.college || '全校'}</div>
           </div>
 
           <div className="motion-lift bg-white/70 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 rounded-lg p-4 backdrop-blur-md">
@@ -444,7 +444,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             <div className="min-w-0">
               <h3 className="flex min-w-0 items-start gap-2 text-base font-bold text-slate-900 dark:text-white sm:items-center">
                 <Award className="w-5 h-5 text-amber-500" />
-                <span className="min-w-0">综合测评年级榜首Top 5 实时预警看板</span>
+                <span className="min-w-0">当前范围综合测评高分 Top 5</span>
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 实时根据【德+智+体+创+志】动态算分更新排名。

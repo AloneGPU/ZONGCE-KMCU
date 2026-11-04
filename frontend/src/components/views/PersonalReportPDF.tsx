@@ -17,6 +17,7 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
   activeAcademicYear,
   onBack
 }) => {
+  const formatScore = (value: number | undefined, fallback: number) => String(value ?? fallback);
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   // 报告日期与印章年份取自当前学年（如 "2025-2026 学年" → 2025），失败时退回当前自然年
@@ -156,45 +157,45 @@ export const PersonalReportPDF: React.FC<PersonalReportPDFProps> = ({
               <tbody className="divide-y divide-slate-900">
                 <tr>
                   <td className="p-2 font-bold border-r border-slate-900">德育</td>
-                  <td className="p-2 border-r border-slate-900 font-mono">×0.20</td>
+                  <td className="p-2 border-r border-slate-900 font-mono">×{((summary?.moralWeight ?? 20) / 100).toFixed(2)}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.moralBase ?? 60}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.moralBonus ?? 0} (扣{summary?.moralDeduction ?? 0})</td>
-                  <td className="p-2 font-bold font-mono">{summary?.moralFinal.toFixed(1) ?? 60}</td>
+                  <td className="p-2 font-bold font-mono">{formatScore(summary?.moralWeighted, 12)}</td>
                 </tr>
                 <tr>
                   <td className="p-2 font-bold border-r border-slate-900">智育</td>
-                  <td className="p-2 border-r border-slate-900 font-mono">×0.40</td>
+                  <td className="p-2 border-r border-slate-900 font-mono">×{((summary?.intellectualWeight ?? 40) / 100).toFixed(2)}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.intellectualBase ?? 85}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.intellectualBonus ?? 0}</td>
-                  <td className="p-2 font-bold font-mono">{summary?.intellectualFinal.toFixed(1) ?? 85}</td>
+                  <td className="p-2 font-bold font-mono">{formatScore(summary?.intellectualWeighted, 34)}</td>
                 </tr>
                 <tr>
                   <td className="p-2 font-bold border-r border-slate-900">体育</td>
-                  <td className="p-2 border-r border-slate-900 font-mono">×0.10</td>
+                  <td className="p-2 border-r border-slate-900 font-mono">×{((summary?.physicalWeight ?? 10) / 100).toFixed(2)}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.physicalBase ?? 50}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.physicalBonus ?? 0}</td>
-                  <td className="p-2 font-bold font-mono">{summary?.physicalFinal.toFixed(1) ?? 50}</td>
+                  <td className="p-2 font-bold font-mono">{formatScore(summary?.physicalWeighted, 5)}</td>
                 </tr>
                 <tr>
                   <td className="p-2 font-bold border-r border-slate-900">能力</td>
-                  <td className="p-2 border-r border-slate-900 font-mono">×0.10</td>
+                  <td className="p-2 border-r border-slate-900 font-mono">×{((summary?.abilityWeight ?? 10) / 100).toFixed(2)}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.abilityBase ?? 60}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.abilityBonus ?? 0}</td>
-                  <td className="p-2 font-bold font-mono">{summary?.abilityFinal.toFixed(1) ?? 60}</td>
+                  <td className="p-2 font-bold font-mono">{formatScore(summary?.abilityWeighted, 6)}</td>
                 </tr>
                 <tr>
                   <td className="p-2 font-bold border-r border-slate-900">美育</td>
-                  <td className="p-2 border-r border-slate-900 font-mono">×0.10</td>
+                  <td className="p-2 border-r border-slate-900 font-mono">×{((summary?.aestheticsWeight ?? 10) / 100).toFixed(2)}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.aestheticsBase ?? 60}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.aestheticsBonus ?? 0}</td>
-                  <td className="p-2 font-bold font-mono">{summary?.aestheticsFinal.toFixed(1) ?? 60}</td>
+                  <td className="p-2 font-bold font-mono">{formatScore(summary?.aestheticsWeighted, 6)}</td>
                 </tr>
                 <tr>
                   <td className="p-2 font-bold border-r border-slate-900">劳动</td>
-                  <td className="p-2 border-r border-slate-900 font-mono">×0.10</td>
+                  <td className="p-2 border-r border-slate-900 font-mono">×{((summary?.laborWeight ?? 10) / 100).toFixed(2)}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.laborBase ?? 60}</td>
                   <td className="p-2 border-r border-slate-900 font-mono">{summary?.laborBonus ?? 0}</td>
-                  <td className="p-2 font-bold font-mono">{summary?.laborFinal.toFixed(1) ?? 60}</td>
+                  <td className="p-2 font-bold font-mono">{formatScore(summary?.laborWeighted, 6)}</td>
                 </tr>
                 <tr className="bg-slate-50 font-bold border-t-2 border-slate-900">
                   <td colSpan={2} className="p-2.5 text-right border-r border-slate-900">综测总分</td>

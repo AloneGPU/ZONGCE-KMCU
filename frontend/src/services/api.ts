@@ -58,13 +58,14 @@ function mapUser(user: any): User {
     username: user.account,
     name: user.name,
     role: user.isAssistant ? 'assistant' : user.role,
+    collegeId: user.collegeId ? String(user.collegeId) : (detail.college_id ? String(detail.college_id) : undefined),
     email: user.email || detail.email || '',
-    college: detail.college_name || detail.college || '',
+    college: user.college_name || detail.college_name || detail.college || '',
     grade: detail.grade || '',
     majorClass: detail.class_name || '',
     studentId: detail.student_id || detail.employee_id || user.account,
     studentDbId: detail.student_id ? String(detail.id) : undefined,
-    title: user.role === 'counselor' ? '辅导员' : undefined
+    title: user.role === 'counselor' ? '辅导员' : user.role === 'college_admin' ? '学院管理员' : undefined
   };
 }
 
@@ -93,6 +94,14 @@ export function mapRules(data: any): RuleCategoryConfig[] {
 export function mapSubmission(submission: any): ProofMaterial {
   // 保留数据库原始状态，各端按需解读
   const status = submission.status;
+  let proofFileCount = submission.proof_path ? 1 : 0;
+  try {
+    const parsed = JSON.parse(submission.proof_files || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0) proofFileCount = parsed.length;
+  } catch (_) { /* Old records only have proof_path. */ }
+  const proofUrls = Array.from({ length: proofFileCount }, (_, index) =>
+    BASE_URL + '/api/files/proof/' + submission.id + '/' + index + '?token=' + encodeURIComponent(getToken())
+  );
   return {
     id: String(submission.id),
     studentId: submission.student_code || String(submission.student_id),
@@ -106,9 +115,8 @@ export function mapSubmission(submission: any): ProofMaterial {
     title: submission.item_name || '综测材料',
     description: submission.description || '',
     awardMonth: submission.award_month || undefined,
-    proofUrl: submission.proof_path
-      ? BASE_URL + '/api/files/proof/' + submission.id + '?token=' + encodeURIComponent(getToken())
-      : undefined,
+    proofUrl: proofUrls[0],
+    proofUrls,
     requestedScore: Number(submission.score) || 0,
     approvedScore: status === 'approved' ? Number(submission.score) : undefined,
     status,
@@ -131,14 +139,36 @@ function moduleScore(ranking: any, moduleName: string) {
     imported,
     hasBreakdown,
     base: Number(module.baseScore || 0),
+    weight: Number(module.weight),
+    weighted: module.weightedScore === undefined ? undefined : Number(module.weightedScore),
     // 服务端已含基础分时用 finalScore，兼容未升级前的旧响应
     final: Number(module.finalScore ?? module.score ?? 0),
   };
 }
 
+function moduleWeight(module: { weight: number }, fallbackPercent: number) {
+  return Number.isFinite(module.weight) && module.weight >= 0 ? module.weight : fallbackPercent;
+}
+
+function decimalToInteger(value: number, decimalPlaces: number) {
+  const text = String(value ?? 0).trim();
+  if (!/^-?\d+(?:\.\d+)?$/.test(text)) return 0;
+  const negative = text.startsWith('-');
+  const [wholeText, fractionText = ''] = (negative ? text.slice(1) : text).split('.');
+  const scale = 10 ** decimalPlaces;
+  const result = Number(wholeText) * scale + Number((fractionText + '0'.repeat(decimalPlaces)).slice(0, decimalPlaces));
+  return negative ? -result : result;
+}
+
+function weightedScore(score: number, weightPercent: number) {
+  const scoreCents = decimalToInteger(score, 2);
+  const weightBasisPoints = decimalToInteger(weightPercent, 2);
+  return scoreCents * weightBasisPoints / 1000000;
+}
+
 export function mapRanking(ranking: any, year: string, college = ''): StudentScoreSummary {
   // 分数一律来自服务端:score=模块原始加分, finalScore=已含基础分的最终分
-  const ZERO = { score: 0, approved: 0, imported: 0, hasBreakdown: true, base: 0, final: 0 };
+  const ZERO = { score: 0, approved: 0, imported: 0, hasBreakdown: true, base: 0, weight: Number.NaN, weighted: undefined, final: 0 };
   const moral = moduleScore(ranking, '德育') || ZERO;
   const ability = moduleScore(ranking, '能力') || ZERO;
   const aesthetic = moduleScore(ranking, '美育') || ZERO;
@@ -153,6 +183,12 @@ export function mapRanking(ranking: any, year: string, college = ''): StudentSco
   const laborDelta = labor.score;
   const physicalImported = physical.hasBreakdown ? physical.imported : physical.score;
   const physicalApproved = physical.hasBreakdown ? physical.approved : 0;
+  const moralWeight = moduleWeight(moral, 20);
+  const intellectualWeight = moduleWeight(intellectual, 40);
+  const physicalWeight = moduleWeight(physical, 10);
+  const abilityWeight = moduleWeight(ability, 10);
+  const aestheticsWeight = moduleWeight(aesthetic, 10);
+  const laborWeight = moduleWeight(labor, 10);
 
   return {
     studentId: ranking.studentCode, studentName: ranking.studentName, grade: ranking.grade || '',
@@ -163,10 +199,40 @@ export function mapRanking(ranking: any, year: string, college = ''): StudentSco
     abilityBonus: Math.max(0, abilityDelta), aestheticsBonus: Math.max(0, aestheticDelta),
     laborBonus: Math.max(0, laborDelta), extraBonus: 0,
     moralFinal: moral.final, intellectualFinal: intellectual.final, physicalFinal: physical.final, abilityFinal: ability.final, aestheticsFinal: aesthetic.final, laborFinal: labor.final,
+    moralWeighted: moral.weighted ?? weightedScore(moral.final, moralWeight),
+    intellectualWeighted: intellectual.weighted ?? weightedScore(intellectual.final, intellectualWeight),
+    physicalWeighted: physical.weighted ?? weightedScore(physical.final, physicalWeight),
+    abilityWeighted: ability.weighted ?? weightedScore(ability.final, abilityWeight),
+    aestheticsWeighted: aesthetic.weighted ?? weightedScore(aesthetic.final, aestheticsWeight),
+    laborWeighted: labor.weighted ?? weightedScore(labor.final, laborWeight),
+    moralWeight,
+    intellectualWeight,
+    physicalWeight,
+    abilityWeight,
+    aestheticsWeight,
+    laborWeight,
     evaluationGrade: totalScore >= 90 ? '优秀' : totalScore >= 80 ? '良好' : totalScore >= 70 ? '中等' : totalScore >= 60 ? '合格' : '不合格',
     isDisqualified: moral.final < 60 || intellectual.final < 60,
     totalScore, classRank: Number(ranking.rank || 0), classTotal: 0, gradeRank: 0, gradeTotal: 0
   };
+}
+
+function assignDenseRanks<T extends { totalScore: number; studentId?: string }>(rows: T[]) {
+  const sorted = [...rows].sort((a, b) =>
+    Number(b.totalScore || 0) - Number(a.totalScore || 0) ||
+    String(a.studentId || '').localeCompare(String(b.studentId || ''), 'zh-Hans-CN', { numeric: true })
+  );
+  let previousScore: number | null = null;
+  let currentRank = 0;
+  sorted.forEach(row => {
+    const score = Number(row.totalScore || 0);
+    if (previousScore === null || score !== previousScore) {
+      currentRank += 1;
+      previousScore = score;
+    }
+    (row as T & { classRank: number }).classRank = currentRank;
+  });
+  return sorted;
 }
 
 export const apiService = {
@@ -258,11 +324,11 @@ export const apiService = {
     return result.submissions.map(mapSubmission);
   },
   async fetchReview(role: User['role'], year: string) {
-    const root = role === 'assistant' ? '/assistant' : role === 'admin' ? '/admin' : '/counselor';
+    const root = role === 'assistant' ? '/assistant' : (role === 'admin' || role === 'college_admin') ? '/admin' : '/counselor';
     const result = await request<{ submissions: any[] }>(root + '/review' + toQuery({ yearId: year }));
     return result.submissions.map(mapSubmission);
   },
-  async submitMaterial(data: { moduleId: string; itemId: string; year: string; description: string; awardMonth?: string; proof?: File; count?: number; proofName?: string; onProgress?: (pct: number) => void }) {
+  async submitMaterial(data: { moduleId: string; itemId: string; year: string; description: string; awardMonth?: string; proofs?: File[]; count?: number; proofName?: string; onProgress?: (pct: number) => void }) {
     const form = new FormData();
     form.set('moduleId', data.moduleId);
     form.set('itemId', data.itemId);
@@ -271,7 +337,7 @@ export const apiService = {
     if (data.awardMonth) form.set('award_month', data.awardMonth);
     if (data.count && data.count > 1) form.set('count', String(data.count));
     if (data.proofName) form.set('proof_name', data.proofName);
-    if (data.proof) form.set('proof', data.proof);
+    (data.proofs || []).forEach(file => form.append('proofs', file));
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -300,28 +366,67 @@ export const apiService = {
       xhr.send(form);
     });
   },
+  async updateMaterial(id: string, data: { moduleId?: string; itemId?: string; description: string; awardMonth?: string; proofs?: File[]; count?: number; proofName?: string; onProgress?: (pct: number) => void }) {
+    const form = new FormData();
+    if (data.moduleId) form.set('moduleId', data.moduleId);
+    if (data.itemId) form.set('itemId', data.itemId);
+    form.set('description', data.description);
+    if (data.awardMonth) form.set('award_month', data.awardMonth);
+    if (data.count) form.set('count', String(data.count));
+    if (data.proofName) form.set('proof_name', data.proofName);
+    (data.proofs || []).forEach(file => form.append('proofs', file));
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('PUT', BASE_URL + '/api/student/submissions/' + id);
+      const token = getToken();
+      if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+
+      if (data.onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) data.onProgress!(Math.round((e.loaded / e.total) * 100));
+        };
+      }
+
+      xhr.onload = () => {
+        try {
+          if (xhr.status === 401) handleUnauthorized();
+          const result = JSON.parse(xhr.responseText);
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(result);
+          } else {
+            reject(new Error(result.error || '修改失败 (' + xhr.status + ')'));
+          }
+        } catch (e) { reject(new Error('修改失败 (' + xhr.status + ')')); }
+      };
+      xhr.onerror = () => reject(new Error('网络错误，修改失败'));
+      xhr.send(form);
+    });
+  },
   deleteMaterial(id: string) { return request('/student/submissions/' + id, { method: 'DELETE' }); },
   adminDeleteMaterial(id: string) { return request('/admin/submissions/' + id, { method: 'DELETE' }); },
   counselorDeleteMaterial(id: string) { return request('/counselor/submissions/' + id, { method: 'DELETE' }); },
-  batchDeleteMaterials(role: 'admin' | 'counselor', ids: string[]) {
-    return request((role === 'admin' ? '/admin' : '/counselor') + '/submissions/batch-delete', {
+  batchDeleteMaterials(role: 'admin' | 'college_admin' | 'counselor', ids: string[]) {
+    return request(((role === 'admin' || role === 'college_admin') ? '/admin' : '/counselor') + '/submissions/batch-delete', {
       method: 'POST', body: JSON.stringify({ ids })
     });
   },
   cleanupProofOrphans(files: string[]) { return request<{ deletedCount: number; failedCount: number }>('/admin/proofs/cleanup', { method: 'POST', body: JSON.stringify({ files }) }); },
-  reviewMaterial(role: User['role'], id: string, action: 'approve' | 'reject', reason?: string) {
-    const root = role === 'assistant' ? '/assistant' : role === 'admin' ? '/admin' : '/counselor';
-    return request(root + '/review/' + id, { method: 'PUT', body: JSON.stringify({ action, reason: reason || '' }) });
+  reviewMaterial(role: User['role'], id: string, action: 'approve' | 'reject', reason?: string, score?: number) {
+    const root = role === 'assistant' ? '/assistant' : (role === 'admin' || role === 'college_admin') ? '/admin' : '/counselor';
+    return request(root + '/review/' + id, { method: 'PUT', body: JSON.stringify({ action, reason: reason || '', score }) });
   },
   async fetchMyScore(year: string) {
     const result = await request<any>('/student/scores' + toQuery({ yearId: year }));
     const ranking = {
       studentCode: result.student.student_id, studentName: result.student.name, className: result.student.class_name,
       grade: result.student.grade, totalScore: result.totalScore, rank: result.rank,
-      modules: result.moduleScores.map((item: any) => ({ moduleName: item.name, score: item.score, baseScore: item.baseScore, finalScore: item.finalScore }))
+      modules: result.moduleScores.map((item: any) => ({ moduleName: item.name, score: item.score, baseScore: item.baseScore, finalScore: item.finalScore, weightedScore: item.weightedScore, weight: item.weight, rank: item.rank }))
     };
     const summary = mapRanking(ranking, year, result.student.college_name || '');
     summary.classTotal = Number(result.totalInClass || 0);
+    summary.gradeRank = Number(result.gradeRank || 0);
+    summary.gradeTotal = Number(result.totalInGrade || 0);
     return { summary, materials: (await apiService.fetchMySubmissions()).filter(item => item.academicYear === year) };
   },
   async fetchClassScores(year: string, className?: string) {
@@ -330,7 +435,7 @@ export const apiService = {
     );
     const summaries = result.rankings.map(item => mapRanking(item, year));
     summaries.forEach(item => { item.classTotal = summaries.length; });
-    return { summaries, className: result.className, classNames: result.classNames };
+    return { summaries, className: result.className, classNames: result.classNames, message: result.message || '' };
   },
 
   // 班委获取本班/本年级全量成绩（用于班级综测数据监察补全）
@@ -357,13 +462,12 @@ export const apiService = {
       byClass.set(key, list);
     });
     byClass.forEach(list => {
-      list.sort((a, b) => b.totalScore - a.totalScore);
-      list.forEach((s, i) => {
-        s.classRank = i + 1;
+      assignDenseRanks(list);
+      list.forEach(s => {
         s.classTotal = list.length;
       });
     });
-    return { summaries: allSummaries, classNames: allClasses };
+    return { summaries: allSummaries, classNames: allClasses, message: (result as any).message || '' };
   },
   async fetchAllScores(year: string) {
     const result = await request<{ rankings: any[] }>('/admin/scores' + toQuery({ yearId: year }));
@@ -375,16 +479,19 @@ export const apiService = {
       group.push(item);
       byClass.set(key, group);
     });
-    byClass.forEach(group => group.forEach(item => { item.classTotal = group.length; }));
+    byClass.forEach(group => {
+      assignDenseRanks(group);
+      group.forEach(item => { item.classTotal = group.length; });
+    });
     return summaries;
   },
-  importScores(role: 'admin' | 'counselor', scores: Array<{ studentId: string; score: number }>, moduleId: string, itemId: string, year: string) {
-    return request((role === 'admin' ? '/admin' : '/counselor') + '/scores/import', {
+  importScores(role: 'admin' | 'college_admin' | 'counselor', scores: Array<{ studentId: string; score: number }>, moduleId: string, itemId: string, year: string) {
+    return request(((role === 'admin' || role === 'college_admin') ? '/admin' : '/counselor') + '/scores/import', {
       method: 'POST', body: JSON.stringify({ scores, moduleId: Number(moduleId), itemId: Number(itemId), yearId: year })
     });
   },
-  importMoralDeductions(role: 'admin' | 'counselor', deductions: Array<{ studentId: string; itemId: string | number; count?: number; score?: number }>, year: string) {
-    return request((role === 'admin' ? '/admin' : '/counselor') + '/scores/moral-deductions/import', {
+  importMoralDeductions(role: 'admin' | 'college_admin' | 'counselor', deductions: Array<{ studentId: string; itemId: string | number; count?: number; score?: number }>, year: string) {
+    return request(((role === 'admin' || role === 'college_admin') ? '/admin' : '/counselor') + '/scores/moral-deductions/import', {
       method: 'POST', body: JSON.stringify({ deductions, yearId: year })
     });
   },
@@ -412,7 +519,7 @@ export const apiService = {
   toggleYearLock(id: number, locked: boolean) {
     return request('/admin/years/' + id + '/lock', { method: 'PUT', body: JSON.stringify({ locked }) });
   },
-  updateYearDeadline(role: 'admin' | 'counselor', id: number, deadline?: string) {
+  updateYearDeadline(role: 'admin' | 'college_admin' | 'counselor', id: number, deadline?: string) {
     return request((role === 'counselor' ? '/counselor' : '/admin') + '/years/' + id + '/deadline', {
       method: 'PUT', body: JSON.stringify({ deadline: deadline || null })
     });
@@ -433,6 +540,17 @@ export const apiService = {
   promoteAssistant(studentId: string, className?: string) { return request('/admin/assistants/promote', { method: 'POST', body: JSON.stringify({ studentId, className }) }); },
   demoteAssistant(studentId: string) { return request('/admin/assistants/demote', { method: 'POST', body: JSON.stringify({ studentId }) }); },
   getAssistants() { return request('/admin/assistants'); },
+  getAssistantReviewScopes(studentId: string) { return request<{ scopes: any[] }>('/admin/assistants/scopes' + toQuery({ studentId })); },
+  addAssistantReviewScope(data: { studentId: string; className: string; grade: string }) { return request('/admin/assistants/scopes', { method: 'POST', body: JSON.stringify(data) }); },
+  removeAssistantReviewScope(id: number) { return request('/admin/assistants/scopes/' + id, { method: 'DELETE' }); },
+  fetchCollegeAdmins() { return request<{ admins: any[] }>('/admin/college-admins'); },
+  createCollegeAdmin(data: { account: string; name: string; email?: string; collegeId: number; password?: string }) {
+    return request('/admin/college-admins', { method: 'POST', body: JSON.stringify(data) });
+  },
+  updateCollegeAdmin(id: number, data: { account: string; name: string; email?: string; collegeId: number; password?: string }) {
+    return request('/admin/college-admins/' + id, { method: 'PUT', body: JSON.stringify(data) });
+  },
+  deleteCollegeAdmin(id: number) { return request('/admin/college-admins/' + id, { method: 'DELETE' }); },
   // ============ 公告通知 ============
   fetchAnnouncements() { return request<{ announcements: any[] }>('/announcements'); },
   createAnnouncement(data: { title: string; content: string; visibility?: string; targetUserId?: number }) { return request('/announcements', { method: 'POST', body: JSON.stringify(data) }); },
@@ -442,7 +560,7 @@ export const apiService = {
   fetchCounselorOverview(year: string) { return request<{ classNames: string[]; totalStudents: number; totalPending: number; grade?: string; configuredGrade?: string; inferredGrade?: string; classOverviews: Array<{ className: string; studentCount: number; pendingCount: number; avg: string; max: string }> }>('/counselor/overview' + toQuery({ yearId: year })); },
   // 辅导员/班委登分表数据
   fetchScoreTable(role: User['role'], year: string, className?: string) {
-    const root = role === 'assistant' ? '/assistant' : '/counselor';
+    const root = role === 'assistant' ? '/assistant' : (role === 'admin' || role === 'college_admin') ? '/admin' : '/counselor';
     return request<{ rows: any[]; className: string; total: number }>(root + '/scores/table' + toQuery({ yearId: year, className }));
   },
   // 更新教师班级

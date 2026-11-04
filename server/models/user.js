@@ -3,12 +3,21 @@ const Teacher = require('./teacher');
 
 const User = {
   async findByAccount(account) {
-    const [rows] = await pool.query('SELECT * FROM users WHERE account = ?', [account]);
+    const [rows] = await pool.query(
+      `SELECT u.*, c.name AS college_name
+       FROM users u LEFT JOIN colleges c ON c.id = u.college_id
+       WHERE u.account = ?`, [account]
+    );
     return rows[0] || null;
   },
 
   async findById(id) {
-    const [rows] = await pool.query('SELECT id, account, role, name, email, token_version, created_at FROM users WHERE id = ?', [id]);
+    const [rows] = await pool.query(
+      `SELECT u.id, u.account, u.role, u.college_id, c.name AS college_name,
+              u.name, u.email, u.token_version, u.created_at
+       FROM users u LEFT JOIN colleges c ON c.id = u.college_id
+       WHERE u.id = ?`, [id]
+    );
     return rows[0] || null;
   },
 
@@ -38,12 +47,12 @@ const User = {
     return user;
   },
 
-  async create({ account, passwordHash, role, name, email }) {
+  async create({ account, passwordHash, role, name, email, collegeId }) {
     const [result] = await pool.query(
-      'INSERT INTO users (account, password_hash, role, name, email) VALUES (?, ?, ?, ?, ?)',
-      [account, passwordHash, role, name, email || null]
+      'INSERT INTO users (account, password_hash, role, college_id, name, email) VALUES (?, ?, ?, ?, ?, ?)',
+      [account, passwordHash, role, collegeId || null, name, email || null]
     );
-    return { id: result.insertId, account, role, name, email: email || null };
+    return { id: result.insertId, account, role, college_id: collegeId || null, name, email: email || null };
   },
 
   async updatePassword(userId, newHash) {

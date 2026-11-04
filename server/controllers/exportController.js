@@ -7,9 +7,14 @@ const fs = require('fs');
 const Teacher = require('../models/teacher');
 const { streamZipFiles } = require('../utils/zip');
 const { sanitizeFilePart, getUploadRoot, resolveStoredFile } = require('../utils/upload');
+const { getProofFiles } = require('../utils/proofFiles');
 const { resolveManagedClassScope, canonicalizeClassNames, normalizeClassName, normalizeGrade } = require('../utils/className');
+const { assignDenseRanks, assignRankingGroups } = require('../utils/ranking');
 
 async function filterRankingsForRequester(req, rankings, className) {
+  if (req.user && req.user.role === 'college_admin') {
+    return rankings.filter(item => Number(item.collegeId || item.college_id) === Number(req.user.collegeId));
+  }
   if (!req.user || req.user.role !== 'counselor') return rankings;
   const teacher = await Teacher.findByUserId(req.user.userId);
   const scope = await resolveManagedClassScope(pool, teacher);
@@ -35,6 +40,41 @@ function actualModuleScore(moduleId, score) {
   const raw = Number(score || 0);
   // 基础分规则统一由 Score.moduleBaseScore 提供，避免此处硬编码重复
   return Score.moduleBaseScore(moduleId) + raw;
+}
+
+function compareRankingScope(left, right) {
+  return normalizeGrade(left.grade).localeCompare(normalizeGrade(right.grade), 'zh-Hans-CN', { numeric: true }) ||
+    normalizeClassName(left.className).localeCompare(normalizeClassName(right.className), 'zh-Hans-CN', { numeric: true });
+}
+
+function groupRankingsByClass(rankings) {
+  const groups = new Map();
+  rankings.forEach(row => {
+    const key = `${normalizeGrade(row.grade)}::${normalizeClassName(row.className)}`;
+    const group = groups.get(key) || [];
+    group.push(row);
+    groups.set(key, group);
+  });
+  return Array.from(groups.values()).sort((left, right) => compareRankingScope(left[0], right[0]));
+}
+
+function assignModuleRanksByClass(rankings, moduleId) {
+  const sorted = [];
+  for (const group of groupRankingsByClass(rankings)) {
+    group.forEach(row => {
+      const module = row.modules.find(item => Number(item.moduleId) === Number(moduleId));
+      row.moduleTotal = actualModuleScore(moduleId, module ? module.score : 0);
+    });
+    sorted.push(...assignDenseRanks(group, 'moduleTotal', 'modRank', row => row.studentCode));
+  }
+  return sorted;
+}
+
+function assignTotalRanksByClass(rankings) {
+  return assignRankingGroups(
+    rankings,
+    row => `${normalizeGrade(row.grade)}::${normalizeClassName(row.className)}`
+  );
 }
 
 function styleExportSheet(ws) {
@@ -141,7 +181,7 @@ exports.checkProofFileConsistency = async (req, res) => {
     const yearId = await getCurrentYearId(req.query.yearId);
     const uploadRoot = getUploadRoot();
     const [rows] = await pool.query(
-      `SELECT sub.id, sub.proof_path, sub.proof_filename,
+      `SELECT sub.id, sub.proof_path, sub.proof_filename, sub.proof_files,
               s.student_id, s.name as student_name, s.class_name,
               ay.name as year_name
        FROM submissions sub
@@ -157,13 +197,15 @@ exports.checkProofFileConsistency = async (req, res) => {
     const invalidPath = [];
 
     for (const row of rows) {
-      const normalized = String(row.proof_path || '').replace(/\\/g, '/');
-      dbPaths.add(normalized);
-      const filePath = path.resolve(uploadRoot, normalized);
-      if (!filePath.startsWith(uploadRoot + path.sep)) {
-        invalidPath.push(row);
-      } else if (!fs.existsSync(filePath)) {
-        missing.push(row);
+      for (const proof of getProofFiles(row)) {
+        const normalized = String(proof.path || '').replace(/\\/g, '/');
+        dbPaths.add(normalized);
+        const filePath = path.resolve(uploadRoot, normalized);
+        if (!filePath.startsWith(uploadRoot + path.sep)) {
+          invalidPath.push({ ...row, proof_path: normalized });
+        } else if (!fs.existsSync(filePath)) {
+          missing.push({ ...row, proof_path: normalized, proof_filename: proof.filename });
+        }
       }
     }
 
@@ -173,9 +215,9 @@ exports.checkProofFileConsistency = async (req, res) => {
     const result = {
       yearId,
       uploadRoot,
-      dbFileCount: rows.length,
+      dbFileCount: dbPaths.size,
       storedFileCount: storedFiles.length,
-      okCount: rows.length - missing.length - invalidPath.length,
+      okCount: dbPaths.size - missing.length - invalidPath.length,
       missingCount: missing.length,
       invalidPathCount: invalidPath.length,
       orphanFileCount: orphanFiles.length,
@@ -204,9 +246,9 @@ exports.cleanupOrphanProofFiles = async (req, res) => {
     if (files.length > 200) return res.status(400).json({ error: '单次最多清理 200 个文件' });
 
     const [allRows] = await pool.query(
-      "SELECT proof_path FROM submissions WHERE proof_path IS NOT NULL AND proof_path != ''"
+      "SELECT proof_path, proof_filename, proof_files FROM submissions WHERE proof_path IS NOT NULL AND proof_path != ''"
     );
-    const dbPaths = new Set(allRows.map(r => String(r.proof_path).replace(/\\/g, '/')));
+    const dbPaths = new Set(allRows.flatMap(row => getProofFiles(row).map(file => String(file.path).replace(/\\/g, '/'))));
 
     const deleted = [];
     const failed = [];
@@ -250,20 +292,21 @@ exports.exportClassCSV = async (req, res) => {
     const [className] = req.query.className ? await canonicalizeClassNames(pool, [String(req.query.className)]) : [''];
     const yearIdNum = await getCurrentYearId(yearId);
 
-    let rankings = await Score.getRankings(yearIdNum, className || null, grade && grade !== 'all' ? grade : undefined);
+    let rankings = await Score.getRankings(yearIdNum, className || null, grade && grade !== 'all' ? grade : undefined, req.user.role === 'college_admin' ? req.user.collegeId : null);
     rankings = await filterRankingsForRequester(req, rankings, className);
     if (grade && grade !== 'all') rankings = rankings.filter(item => normalizeGrade(item.grade) === normalizeGrade(grade));
+    rankings = assignTotalRanksByClass(rankings);
     const [modRows] = await pool.query('SELECT * FROM scoring_modules ORDER BY sort_order');
     // 预热基础分缓存，actualModuleScore 内部只需同步读取
     await Score.ensureBaseScores();
 
-    const headers = ['排名', '学号', '姓名', '班级', ...modRows.map(m => m.name + '(' + Number(m.weight) + '%)'), '综测总分'];
+    const headers = ['排名', '学号', '姓名', '年级', '专业班级', ...modRows.map(m => m.name + '(' + Number(m.weight) + '%)'), '综测总分'];
     const dataRows = rankings.map(r => {
       const modScores = modRows.map(m => {
         const ms = r.modules.find(mm => mm.moduleId === m.id);
         return actualModuleScore(m.id, ms ? ms.score : 0);
       });
-      return [r.rank, r.studentCode, r.studentName, r.className, ...modScores, r.totalScore];
+      return [r.rank, r.studentCode, r.studentName, r.grade, r.className, ...modScores, r.totalScore];
     });
 
     const filename = className
@@ -304,18 +347,13 @@ exports.exportModuleCSV = async (req, res) => {
     const [mod] = await pool.query('SELECT * FROM scoring_modules WHERE id = ?', [modId]);
     if (!mod[0]) return res.status(404).json({ error: '模块不存在' });
 
-    let rankings = await Score.getRankings(yearIdNum, className || null, grade && grade !== 'all' ? grade : undefined);
+    let rankings = await Score.getRankings(yearIdNum, className || null, grade && grade !== 'all' ? grade : undefined, req.user.role === 'college_admin' ? req.user.collegeId : null);
     rankings = await filterRankingsForRequester(req, rankings, className);
     if (grade && grade !== 'all') rankings = rankings.filter(item => normalizeGrade(item.grade) === normalizeGrade(grade));
     await Score.ensureBaseScores();
 
-    // 按该模块实际得分排序，德育/能力/美育/劳动包含60分基础分。
-    rankings.sort((a, b) => {
-      const am = a.modules.find(m => m.moduleId === modId);
-      const bm = b.modules.find(m => m.moduleId === modId);
-      return actualModuleScore(modId, bm ? bm.score : 0) - actualModuleScore(modId, am ? am.score : 0);
-    });
-    rankings.forEach((r, i) => r.modRank = i + 1);
+    // 始终按“年级 + 专业班级”计算单项排名，避免同名班级跨年级混排。
+    rankings = assignModuleRanksByClass(rankings, modId);
 
     // 查询该学年该模块所有已通过的提交和导入成绩，按学生+加分项分组
     const [subScores] = await pool.query(
@@ -329,7 +367,7 @@ exports.exportModuleCSV = async (req, res) => {
        GROUP BY student_id, item_id`, [yearIdNum, modId]
     );
 
-    const headers = ['排名', '学号', '姓名', '班级', ...items.map(i => i.name), mod[0].name + '总分'];
+    const headers = ['排名', '学号', '姓名', '年级', '专业班级', ...items.map(i => i.name), mod[0].name + '总分'];
     const dataRows = rankings.map(r => {
       const itemScores = items.map(item => {
         const sub = subScores.find(s => s.student_id === r.studentId && s.item_id === item.id);
@@ -337,7 +375,7 @@ exports.exportModuleCSV = async (req, res) => {
         return (sub ? Number(sub.score) : 0) + (imp ? Number(imp.score) : 0);
       });
       const modTotal = r.modules.find(m => m.moduleId === modId);
-      return [r.modRank, r.studentCode, r.studentName, r.className, ...itemScores, actualModuleScore(modId, modTotal ? modTotal.score : 0)];
+      return [r.modRank, r.studentCode, r.studentName, r.grade, r.className, ...itemScores, actualModuleScore(modId, modTotal ? modTotal.score : 0)];
     });
 
     const filename = mod[0].name + '_' + yearIdNum + (format === 'xlsx' ? '.xlsx' : '.csv');
@@ -414,7 +452,11 @@ exports.exportProofImagesZip = async (req, res) => {
       params.push(grade);
     }
 
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'college_admin') {
+      if (req.user.role === 'college_admin') {
+        where.push('s.college_id = ?');
+        params.push(req.user.collegeId);
+      }
       if (className && className !== 'all') {
         where.push('s.class_name = ?');
         params.push(className);
@@ -451,7 +493,7 @@ exports.exportProofImagesZip = async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      `SELECT sub.id, sub.score, sub.status, sub.proof_filename, sub.proof_path,
+      `SELECT sub.id, sub.score, sub.status, sub.proof_filename, sub.proof_path, sub.proof_files,
               s.student_id, s.name as student_name, s.class_name, s.grade,
               sm.name as module_name, ay.name as year_name
        FROM submissions sub
@@ -473,15 +515,17 @@ exports.exportProofImagesZip = async (req, res) => {
     const files = [];
 
     for (const row of rows) {
-      const filePath = path.resolve(uploadRoot, row.proof_path);
-      if (!filePath.startsWith(uploadRoot + path.sep) || !fs.existsSync(filePath)) {
-        missing.push({ id: row.id, proof_path: row.proof_path });
-        continue;
+      for (const proof of getProofFiles(row)) {
+        const filePath = path.resolve(uploadRoot, proof.path);
+        if (!filePath.startsWith(uploadRoot + path.sep) || !fs.existsSync(filePath)) {
+          missing.push({ id: row.id, proof_path: proof.path });
+          continue;
+        }
+        files.push({
+          name: buildProofExportName({ ...row, proof_filename: proof.filename, proof_path: proof.path }, usedNames),
+          path: filePath,
+        });
       }
-      files.push({
-        name: buildProofExportName(row, usedNames),
-        path: filePath,
-      });
     }
 
     if (missing.length > 0) {
